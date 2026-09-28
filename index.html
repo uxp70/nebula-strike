@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nebula Strike — GitHub Online Game</title>
+  <meta name="description" content="Nebula Strike: a neon arena shooter with login, leaderboard, and wave combat. Deployable to GitHub Pages." />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-mark">◈</div>
+      <div>NEBULA STRIKE<br /><small>ARENA SHOOTER</small></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="user-chip" id="userChip" hidden>
+      <div class="avatar" id="avatar">G</div>
+      <div>
+        <div class="uname" id="chipName">Guest</div>
+        <div class="usub" id="chipSub">guest</div>
+      </div>
+    </div>
+    <button class="btn btn-sm" id="loginBtn">Login / Register</button>
+    <button class="btn btn-sm btn-ghost" id="logoutBtn" hidden>Logout</button>
+  </header>
+
+  <main class="wrap">
+    <div class="hero-grid">
+      <section class="card">
+        <span class="kicker">GITHUB PAGES READY • NO BACKEND</span>
+        <h1 class="title">Survive the <span>Nebula.</span> Top the board.</h1>
+        <p class="subtitle">
+          A fast, juicy top-down arena shooter. Log in to save your pilot profile,
+          fight escalating waves, grab power-ups, pick level-up upgrades, and chase the leaderboard.
+          Push this repo to GitHub and it's instantly playable online.
+        </p>
+        <div class="cta-row">
+          <button class="btn btn-primary" id="playBtn">▶ &nbsp;Deploy Ship</button>
+          <button class="btn" id="howBtn">How to play</button>
+          <button class="btn btn-ghost" id="guestBtn">Play as guest</button>
+        </div>
+        <div class="stat-row">
+          <div class="stat"><b id="statBest">0</b><span>Your best score</span></div>
+          <div class="stat"><b id="statGames">0</b><span>Games played</span></div>
+          <div class="stat"><b id="statKills">0</b><span>Total kills</span></div>
+          <div class="stat"><b id="statTop">—</b><span>Global top pilot</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="tabs">
+          <button class="tab active" data-tab="board">🏆 Leaderboard</button>
+          <button class="tab" data-tab="how">⌨️ Controls</button>
+          <button class="tab" data-tab="settings">⚙️ Settings</button>
+        </div>
+        <div id="tab-board">
+          <table class="board">
+            <thead><tr><th>#</th><th>PILOT</th><th>SCORE</th><th>WAVE</th><th>KILLS</th></tr></thead>
+            <tbody id="boardBody"><tr><td colspan="5" class="muted">No flights yet. Be the first.</td></tr></tbody>
+          </table>
+          <p class="muted" style="font-size:12px">Scores save to your pilot account in this browser. Logged-out guest runs don't rank.</p>
+        </div>
+        <div id="tab-how" hidden>
+          <div class="howto">
+            <div><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or arrows — move</div>
+            <div>🖱️ Mouse — aim &nbsp;•&nbsp; hold <kbd>Click</kbd> / <kbd>Space</kbd> — fire</div>
+            <div><kbd>Shift</kbd> — dash (cooldown) &nbsp;•&nbsp; <kbd>P</kbd> — pause &nbsp;•&nbsp; <kbd>M</kbd> — mute</div>
+            <div>💠 Pick up <b style="color:var(--green)">repair</b>, <b style="color:var(--neon)">shield</b>, <b style="color:var(--gold)">double-fire</b> cores.</div>
+            <div>☠️ Boss every 5 waves. Splitters break into minis. Snipers keep distance.</div>
+            <div>📱 Mobile: left thumb moves, right thumb aims + autofires.</div>
+          </div>
+        </div>
+        <div id="tab-settings" hidden>
+          <div class="field">
+            <label>DIFFICULTY</label>
+            <select id="difficulty">
+              <option value="rookie">Rookie — relaxed</option>
+              <option value="pilot" selected>Pilot — balanced</option>
+              <option value="ace">Ace — brutal</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>SOUND</label>
+            <select id="soundSel">
+              <option value="on" selected>On</option>
+              <option value="off">Off</option>
+            </select>
+          </div>
+          <button class="btn btn-sm btn-danger" id="wipeBtn">Reset all local data</button>
+        </div>
+      </section>
+    </div>
+
+    <section class="card game-shell">
+      <h3 style="display:flex;align-items:center;gap:10px">🛸 Combat Zone
+        <span class="muted" id="runInfo" style="font-weight:400;font-size:13px">— press Deploy Ship —</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm" id="pauseBtn">Pause</button>
+        <button class="btn btn-sm btn-ghost" id="restartBtn">Restart</button>
+      </h3>
+      <div class="canvas-wrap">
+        <canvas id="game" width="1120" height="560"></canvas>
+        <div class="hud">
+          <span class="pill">SCORE <b id="hudScore">0</b></span>
+          <span class="pill">WAVE <b id="hudWave">1</b></span>
+          <span class="pill">KILLS <b id="hudKills">0</b></span>
+          <span class="pill" style="display:flex;gap:8px;align-items:center">HP <span class="bar hp"><i id="hpFill" style="width:100%"></i></span></span>
+          <span class="pill" style="display:flex;gap:8px;align-items:center">XP <span class="bar"><i id="xpFill" style="width:0%"></i></span></span>
+        </div>
+
+        <div class="overlay" id="menuOverlay">
+          <div class="panel">
+            <div style="font-size:42px">🚀</div>
+            <h2 id="overlayTitle">Ready for launch?</h2>
+            <p class="muted" id="overlaySub">Login to rank on the leaderboard. Guests can still fly.</p>
+            <div class="cta-row" style="justify-content:center">
+              <button class="btn btn-primary" id="overlayPlay">Launch</button>
+              <button class="btn" id="overlayLogin">Login</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="overlay hidden" id="upgradeOverlay">
+          <div class="panel">
+            <h2>⬆️ Level up! Pick an upgrade</h2>
+            <p class="muted">Your ship evolves each level.</p>
+            <div class="upgrade-grid" id="upgradeGrid"></div>
+          </div>
+        </div>
+
+        <div class="overlay hidden" id="gameOverOverlay">
+          <div class="panel">
+            <div style="font-size:42px">💥</div>
+            <h2>Ship destroyed</h2>
+            <p class="muted" id="finalStats">Score 0</p>
+            <div class="cta-row" style="justify-content:center">
+              <button class="btn btn-primary" id="againBtn">Fly again</button>
+              <button class="btn" id="menuBtn">Menu</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="stick left" id="stickL"></div>
+        <div class="stick right" id="stickR"></div>
+      </div>
+      <div class="footer">
+        <span>Made for GitHub Pages • static, no tracking • v1.0</span>
+        <span>Tip: press <kbd style="font-family:var(--mono)">M</kbd> to mute • <kbd style="font-family:var(--mono)">P</kbd> to pause</span>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-back hidden" id="authModal">
+    <div class="modal">
+      <h3 id="authTitle">Welcome, pilot</h3>
+      <p class="muted" style="margin:4px 0 0;font-size:13px">Accounts live in this browser (localStorage), hashed + salted. Push to GitHub Pages and anyone can register.</p>
+      <div class="field">
+        <label>CALLSIGN (USERNAME)</label>
+        <input id="authUser" maxlength="16" placeholder="e.g. nova_pilot" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>PASSWORD</label>
+        <input id="authPass" type="password" placeholder="min. 4 characters" autocomplete="current-password" />
+      </div>
+      <div class="form-err" id="authErr"></div>
+      <div class="form-row">
+        <button class="btn btn-primary" id="doLogin">Login</button>
+        <button class="btn" id="doRegister">Register</button>
+      </div>
+      <p class="muted" style="font-size:13px;margin:12px 0 0">No account? Hit <b>Register</b> — it creates + logs you in. <button class="linklike" id="closeAuth">Close</button></p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="js/auth.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
