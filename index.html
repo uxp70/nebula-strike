@@ -93,7 +93,7 @@
             <div><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or arrows — move</div>
             <div>🖱️ Mouse — aim &nbsp;•&nbsp; hold <kbd>Click</kbd> / <kbd>Space</kbd> — fire</div>
             <div><kbd>Shift</kbd> — dash (cooldown) &nbsp;•&nbsp; <kbd>P</kbd> — pause &nbsp;•&nbsp; <kbd>M</kbd> — mute</div>
-            <div>💠 Pick up <b style="color:var(--green)">repair</b>, <b style="color:var(--neon)">shield</b>, <b style="color:var(--gold)">double-fire</b> cores.</div>
+            <div>💠 Pick up <b style="color:var(--green)">repair</b>, <b style="color:var(--neon)">shield</b>, <b style="color:var(--gold)">double-fire</b> cores — and grab <b style="color:var(--gold)">◉ coins</b>, they're shop credits.</div>
             <div>☠️ Boss every 5 waves. Splitters break into minis. Snipers keep distance.</div>
             <div>📱 Mobile: left stick moves, right stick aims + autofires. No aim touch = auto-aim nearest. Tap DASH to burst.</div>
           </div>
@@ -137,6 +137,7 @@
         <span style="flex:1"></span>
         <button class="btn btn-sm" id="pauseBtn">Pause</button>
         <button class="btn btn-sm btn-ghost" id="restartBtn">Restart</button>
+        <button class="btn btn-sm btn-ghost" id="fsBtn">⛶ Fullscreen</button>
       </h3>
       <div class="canvas-wrap" id="canvasWrap">
         <canvas id="game" width="1120" height="560"></canvas>
@@ -144,6 +145,7 @@
           <span class="pill">SCORE <b id="hudScore">0</b></span>
           <span class="pill">WAVE <b id="hudWave">1</b></span>
           <span class="pill">KILLS <b id="hudKills">0</b></span>
+          <span class="pill">◉ <b id="hudCoins">0</b></span>
           <span class="pill pill-bar">HP <span class="bar hp"><i id="hpFill" style="width:100%"></i></span></span>
           <span class="pill pill-bar">XP <span class="bar"><i id="xpFill" style="width:0%"></i></span></span>
         </div>

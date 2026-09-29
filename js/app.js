@@ -418,11 +418,32 @@
     toast(game.isMobile ? "Left: move • Right: aim+fire • DASH button" : "Move: WASD • Aim: mouse • Fire: click/space");
   });
 
+  // ---------- fullscreen ----------
+  const fsBtn = $("fsBtn");
+  const fsTarget = () => $("canvasWrap");
+  function fsLabel() {
+    fsBtn.textContent = document.fullscreenElement ? "⛶ Exit Full" : "⛶ Fullscreen";
+  }
+  fsBtn.addEventListener("click", async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (fsTarget().requestFullscreen) await fsTarget().requestFullscreen();
+      else toast("Fullscreen not supported here.");
+    } catch { toast("Fullscreen blocked by browser."); }
+    try { game.resize(false); } catch {}
+  });
+  document.addEventListener("fullscreenchange", () => {
+    fsLabel();
+    try { game.resize(false); } catch {}
+  });
+  fsLabel();
+
   game.onEvent = (ev, data) => {
     if (ev === "hud") {
       $("hudScore").textContent = Math.floor(game.score);
       $("hudWave").textContent = game.wave;
       $("hudKills").textContent = game.kills;
+      $("hudCoins").textContent = game.coins || 0;
       $("hpFill").style.width = (game.p.hp / game.p.maxHp * 100) + "%";
       $("xpFill").style.width = (game.p.xp / game.p.xpNext * 100) + "%";
     }
@@ -458,6 +479,10 @@
       const me = auth.currentUser();
       if (me) {
         const r = auth.recordGame(me.username, data);
+        // coins grabbed mid-run convert to shop credits (5 each, capped)
+        const coins = Math.max(0, Math.floor(Number(data.coins) || 0));
+        const coinBonus = Math.min(200, coins * 5);
+        const total = coinBonus ? auth.addCredits(me.username, coinBonus) : r.credits;
         refreshUser();
         checkDaily(false);
         // post to the worldwide board (fire-and-forget; queued offline)
@@ -466,7 +491,7 @@
         $("finalStats").textContent =
           `Score ${data.score} • Wave ${data.wave} • Kills ${data.kills}` +
           (r.isBest ? " • NEW BEST! 🏆" : "") +
-          ` • +${r.earned} credits ◉ → ${r.credits} • posted 🌍`;
+          ` • +${r.earned} run ◉${coinBonus ? ` +${coinBonus} coins ◉` : ""} → ${total} • posted 🌍`;
       } else {
         $("finalStats").textContent = `Score ${data.score} • Wave ${data.wave} • Kills ${data.kills} • guest run (login to rank + earn credits)`;
       }
@@ -474,7 +499,7 @@
       $("gameOverOverlay").classList.remove("hidden");
     }
     if (ev === "start") {
-      $("hudScore").textContent = "0"; $("hudWave").textContent = "1"; $("hudKills").textContent = "0";
+      $("hudScore").textContent = "0"; $("hudWave").textContent = "1"; $("hudKills").textContent = "0"; $("hudCoins").textContent = "0";
     }
   };
 

@@ -137,6 +137,8 @@ h1.title span { background: linear-gradient(90deg, var(--neon), var(--neon2), va
 }
 canvas#game { display: block; width: 100%; height: 560px; cursor: crosshair; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .canvas-wrap { touch-action: none; overscroll-behavior: none; }
+.canvas-wrap:fullscreen { border-radius: 0; border: none; background: #000; }
+.canvas-wrap:fullscreen .hud { font-size: 14px; }
 @media (max-width: 640px) { canvas#game { height: 440px; } }
 .hud {
   position: absolute; top: 0; left: 0; right: 0;

@@ -54,7 +54,9 @@
       const parent = this.cv.parentElement;
       const cssW = Math.max(300, Math.floor(parent ? parent.clientWidth : 1120));
       let cssH;
-      if (window.innerWidth < 640) cssH = clamp(Math.floor(window.innerHeight * 0.58), 380, 520);
+      if (document.fullscreenElement && parent) {
+        cssH = Math.max(300, Math.floor(parent.clientHeight));
+      } else if (window.innerWidth < 640) cssH = clamp(Math.floor(window.innerHeight * 0.58), 380, 520);
       else if (window.innerWidth < 920) cssH = 500;
       else cssH = 560;
       // canvas CSS is 100% width; set explicit height for consistent touch mapping
@@ -206,7 +208,7 @@
       };
       this.bullets = []; this.enemies = []; this.parts = [];
       this.pickups = []; this.ebullets = [];
-      this.score = 0; this.kills = 0; this.wave = 1;
+      this.score = 0; this.kills = 0; this.wave = 1; this.coins = 0;
       this.spawnT = 0; this.spawned = 0; this.waveTotal = 8;
       this.time = 0; this.shake = 0; this.startMs = Date.now();
       this.touch.mx = 0; this.touch.my = 0; this.touch.aimActive = false;
@@ -233,7 +235,7 @@
     }
     gameOver() {
       this.state = "over";
-      this.onEvent("over", { score: Math.floor(this.score), wave: this.wave, kills: this.kills, ms: Date.now() - this.startMs });
+      this.onEvent("over", { score: Math.floor(this.score), wave: this.wave, kills: this.kills, ms: Date.now() - this.startMs, coins: this.coins || 0 });
     }
 
     pendingUpgrades() { return this._pendingUps || null; }
@@ -463,8 +465,9 @@
           if (k.kind === "shield") p.shield = 6;
           if (k.kind === "double") p.doubleT = 10;
           if (k.kind === "xp") this.gainXp(8);
+          if (k.kind === "coin") { this.coins++; this.onEvent("hud"); }
           this.sfx.pickup();
-          this.explode(k.x, k.y, "#34d399", 8, 150);
+          this.explode(k.x, k.y, k.kind === "coin" ? "#fbbf24" : "#34d399", 8, 150);
           this.pickups.splice(i, 1);
           continue;
         }
@@ -506,6 +509,14 @@
         const kinds = ["hp", "shield", "double", "xp"];
         this.pickups.push({ x: e.x, y: e.y, kind: kinds[Math.floor(Math.random() * kinds.length)], life: 9 });
       }
+      // coin drops: steady income through actual gameplay (bosses shower coins)
+      if (e.type === "boss") {
+        for (let k = 0; k < 8; k++) {
+          this.pickups.push({ x: e.x + rand(-26, 26), y: e.y + rand(-26, 26), kind: "coin", life: 12 });
+        }
+      } else if (Math.random() < 0.35) {
+        this.pickups.push({ x: e.x, y: e.y, kind: "coin", life: 9 });
+      }
     }
 
     gainXp(n) {
@@ -546,6 +557,14 @@
       };
 
       for (const k of this.pickups) {
+        if (k.kind === "coin") {
+          drawGlow(k.x, k.y, 7, "#fbbf24");
+          c.fillStyle = "#fbbf24";
+          c.beginPath(); c.arc(k.x, k.y, 7 + Math.sin(this.time * 5 + k.x) * 1.2, 0, 7); c.fill();
+          c.fillStyle = "#7c4a03";
+          c.beginPath(); c.arc(k.x, k.y, 3.4, 0, 7); c.fill();
+          continue;
+        }
         const col = k.kind === "hp" ? "#34d399" : k.kind === "shield" ? "#5eeaff" : k.kind === "double" ? "#fbbf24" : "#a78bfa";
         drawGlow(k.x, k.y, 8, col);
         c.fillStyle = col;
