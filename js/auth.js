@@ -60,6 +60,9 @@
     if (!u.daily) u.daily = { lastClaim: null, streak: 0 };
     if (!u.created) u.created = Date.now();
     if (!u.lastSeen) u.lastSeen = Date.now();
+    if (!u.cosmetics) u.cosmetics = { paints: ["#5eeaff"], paint: "#5eeaff", emblems: ["🚀"], emblem: "🚀" };
+    if (!Array.isArray(u.cosmetics.paints)) u.cosmetics.paints = ["#5eeaff"];
+    if (!Array.isArray(u.cosmetics.emblems)) u.cosmetics.emblems = ["🚀"];
     return u;
   }
 
@@ -160,6 +163,37 @@
       u.credits = Math.max(0, (u.credits || 0) + Math.floor(n));
       this._persist();
       return u.credits;
+    }
+
+    // ---------- cosmetics shop (hangar) ----------
+    purchaseCosmetic(username, kind, id, cost, catalog) {
+      const key = this._findKey(username);
+      if (!key) throw new Error("Login first.");
+      const u = ensureShape(this.users[key]);
+      const item = (catalog || []).find(x => x.id === id);
+      if (!item) throw new Error("Unknown item.");
+      const owned = kind === "paint" ? u.cosmetics.paints : u.cosmetics.emblems;
+      if (owned.includes(id)) return { owned: true, credits: u.credits };
+      if ((u.credits || 0) < cost) throw new Error("Not enough credits — play runs + claim dailies.");
+      u.credits -= cost;
+      owned.push(id);
+      // auto-equip on purchase
+      if (kind === "paint") u.cosmetics.paint = id;
+      else u.cosmetics.emblem = id;
+      this._persist();
+      return { owned: false, credits: u.credits };
+    }
+    equipCosmetic(username, kind, id, catalog) {
+      const key = this._findKey(username);
+      if (!key) throw new Error("Login first.");
+      const u = ensureShape(this.users[key]);
+      if (catalog && !catalog.find(x => x.id === id)) throw new Error("Unknown item.");
+      const owned = kind === "paint" ? u.cosmetics.paints : u.cosmetics.emblems;
+      if (!owned.includes(id)) throw new Error("You don't own that yet.");
+      if (kind === "paint") u.cosmetics.paint = id;
+      else u.cosmetics.emblem = id;
+      this._persist();
+      return this.currentUser();
     }
 
     recordGame(username, { score, wave, kills, ms }) {

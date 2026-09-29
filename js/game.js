@@ -310,6 +310,7 @@
       if (diff) this.difficulty = diff;
       this.resize(false);
       this.reset();
+      if (opts && opts.paint && /^#[0-9a-fA-F]{6}$/.test(opts.paint)) this.p.color = opts.paint;
       if (opts && opts.bonusHp) this.arm.maxHp += opts.bonusHp;
       if (opts && opts.bonusDmg) this.arm.dmg *= opts.bonusDmg;
       this.healAll();
@@ -352,7 +353,8 @@
       this.time = 0; this.shake = 0; this.startMs = Date.now();
       this.localId = opts.myId;
       this.players = opts.members.map((m, i) => {
-        const pl = this._mkPlayer(m.id, m.name, SQUAD_COLORS[i % SQUAD_COLORS.length],
+        const paint = (typeof m.paint === "string" && /^#[0-9a-fA-F]{6}$/.test(m.paint)) ? m.paint : SQUAD_COLORS[i % SQUAD_COLORS.length];
+        const pl = this._mkPlayer(m.id, m.name, paint,
           this.W / 2 + (i - (opts.members.length - 1) / 2) * 60, this.H / 2);
         this.coinMap[m.id] = 0;
         return pl;

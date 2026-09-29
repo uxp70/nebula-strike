@@ -40,7 +40,14 @@
     if (!(w >= 1 && w <= MAX_WAVE)) return null;
     if (!(k >= 0 && k <= MAX_KILLS)) return null;
     if (!(t >= 946684800000 && t <= Date.now() + 3600000)) return null; // 2000..now+1h
-    return { user: u, score: s, wave: w, kills: k, date: t };
+    let emblem = null;
+    if (e.e !== undefined && e.e !== null) {
+      if (typeof e.e !== "string") return null;
+      const trimmed = e.e.trim();
+      if (trimmed.length < 1 || trimmed.length > 8 || /[<>&\s]/.test(trimmed)) return null;
+      emblem = trimmed;
+    }
+    return { user: u, score: s, wave: w, kills: k, date: t, emblem };
   }
 
   class GlobalBoard {
@@ -87,10 +94,11 @@
       }
     }
 
-    async submit({ user, score, wave, kills }) {
-      const entry = validEntry({ u: user, s: score, w: wave, k: kills, t: Date.now() });
+    async submit({ user, score, wave, kills, emblem }) {
+      const entry = validEntry({ u: user, s: score, w: wave, k: kills, t: Date.now(), e: emblem === undefined ? null : emblem });
       if (!entry) return { ok: false, reason: "invalid" };
       const wire = { u: entry.user, s: entry.score, w: entry.wave, k: entry.kills, t: entry.date };
+      if (entry.emblem) wire.e = entry.emblem;
       try {
         await this._post(wire);
         this.flushQueue(); // piggyback any backlog

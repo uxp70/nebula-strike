@@ -60,6 +60,7 @@
         <div class="tabs">
           <button class="tab active" data-tab="board">🏆 Leaderboard</button>
           <button class="tab" data-tab="squad">👾 Squad</button>
+          <button class="tab" data-tab="hangar">🎨 Hangar</button>
           <button class="tab" data-tab="how">⌨️ Controls</button>
           <button class="tab" data-tab="settings">⚙️ Settings</button>
         </div>
@@ -107,6 +108,17 @@
             <button class="btn btn-sm btn-primary" id="squadLaunchBtn" disabled>🚀 Launch squad run</button>
           </div>
           <p class="muted" style="font-size:12px">Host simulates the run; all pilots share XP and upgrades. If the host drops, another pilot takes over automatically.</p>
+        </div>
+        <div id="tab-hangar" hidden>
+          <p class="muted" style="font-size:13px;margin:0 0 8px">Your look, everywhere: squadmates see your paint + emblem live, and your emblem shows on the 🌍 board. Buy once with credits, yours forever.</p>
+          <div class="field" style="margin-top:0">
+            <label>HULL PAINT — <span id="hangarCredits">0 credits</span></label>
+            <div class="hangar-grid" id="paintGrid"></div>
+          </div>
+          <div class="field">
+            <label>PILOT EMBLEM</label>
+            <div class="hangar-grid" id="emblemGrid"></div>
+          </div>
         </div>
         <div id="tab-how" hidden>
           <div class="howto">

@@ -77,8 +77,9 @@
     btn.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
-      ["board", "squad", "how", "settings"].forEach(t => { $("tab-" + t).hidden = btn.dataset.tab !== t; });
+      ["board", "squad", "hangar", "how", "settings"].forEach(t => { $("tab-" + t).hidden = btn.dataset.tab !== t; });
       if (btn.dataset.tab === "squad") renderSquad();
+      if (btn.dataset.tab === "hangar") renderHangar();
     });
   });
 
@@ -228,7 +229,7 @@
     if (me) {
       $("chipName").textContent = me.username;
       $("chipSub").textContent = `${me.stats.games} flights • best ${me.stats.best} • 🔥${(me.daily && me.daily.streak) || 0}`;
-      $("avatar").textContent = me.username[0].toUpperCase();
+      $("avatar").textContent = (me.cosmetics && me.cosmetics.emblem) || me.username[0].toUpperCase();
       $("statBest").textContent = me.stats.best;
       $("statGames").textContent = me.stats.games;
       $("statKills").textContent = me.stats.kills;
@@ -252,6 +253,11 @@
     }
     renderBoard();
     renderLoadout();
+    renderHangar();
+    if (squad && me && squad.cosmetics) {
+      squad.cosmetics.paint = (me.cosmetics && me.cosmetics.paint) || "#5eeaff";
+      squad.cosmetics.emblem = myEmblem();
+    }
   }
 
   function fmtDate(ts) {
@@ -298,7 +304,7 @@
       return;
     }
     body.innerHTML = globalRows.slice(0, 10).map((r, i) =>
-      `<tr class="${me && r.user.toLowerCase() === me.username.toLowerCase() ? "me" : ""}" title="${r.date ? escapeHtml(fmtDate(r.date)) : ""}"><td>${i + 1}</td><td>${escapeHtml(r.user)}</td><td><b>${r.score}</b></td><td>${r.wave}</td><td>${r.kills}</td></tr>`
+      `<tr class="${me && r.user.toLowerCase() === me.username.toLowerCase() ? "me" : ""}" title="${r.date ? escapeHtml(fmtDate(r.date)) : ""}"><td>${i + 1}</td><td>${r.emblem ? escapeHtml(r.emblem) + " " : ""}${escapeHtml(r.user)}</td><td><b>${r.score}</b></td><td>${r.wave}</td><td>${r.kills}</td></tr>`
     ).join("");
   }
 
@@ -367,9 +373,10 @@
   let squadRun = null; // {isHost}
   let lastSnap = null;
   function ensureSquad() {
-    if (squad) { squad.name = auth.currentUser().username; return squad; }
+    if (squad) { squad.name = auth.currentUser().username; syncSquadLook(); return squad; }
     squad = new SquadNet({
       name: auth.currentUser().username,
+      cosmetics: currentLook(),
       onRoster: (members, hostId) => { renderSquad(members, hostId); checkSquad(members, hostId); },
       onSnap: (snap) => {
         if (!squadRun || squadRun.isHost) return;
@@ -383,6 +390,20 @@
     });
     return squad;
   }
+  function currentLook() {
+    const me = auth.currentUser();
+    return {
+      paint: (me && me.cosmetics && me.cosmetics.paint) || "#5eeaff",
+      emblem: myEmblem()
+    };
+  }
+  function syncSquadLook() {
+    if (squad && squad.cosmetics) {
+      const look = currentLook();
+      squad.cosmetics.paint = look.paint;
+      squad.cosmetics.emblem = look.emblem;
+    }
+  }
   function renderSquad(members, hostId) {
     members = members || (squad ? squad.roster() : []);
     hostId = hostId || (squad ? squad.hostId() : null);
@@ -395,7 +416,7 @@
       return;
     }
     box.innerHTML = members.map(m =>
-      `<div class="member"><b>${escapeHtml(m.name)}</b>
+      `<div class="member"><span>${m.emblem ? escapeHtml(m.emblem) + " " : ""}</span><span class="swatch" style="background:${/^#[0-9a-fA-F]{6}$/.test(m.paint || "") ? m.paint : "#5eeaff"}"></span><b>${escapeHtml(m.name)}</b>
        ${m.id === hostId ? '<span class="crown">👑 host</span>' : ""}
        ${me && m.name === me.username && m.id === squad.id ? '<span class="youmark">• you</span>' : ""}</div>`
     ).join("") || '<div class="muted">Waiting for pilots…</div>';
@@ -494,7 +515,7 @@
       const coinBonus = Math.min(200, Math.max(0, Math.floor(myCoins)) * 5);
       const total = coinBonus ? auth.addCredits(me.username, coinBonus) : r.credits;
       refreshUser();
-      board.submit({ user: me.username, score: stats.score, wave: stats.wave, kills: stats.kills })
+      board.submit({ user: me.username, score: stats.score, wave: stats.wave, kills: stats.kills, emblem: myEmblem() })
         .then(res => { if (res.ok) refreshGlobal(false); });
       $("finalStats").textContent =
         `🤝 Squad score ${stats.score} • Wave ${stats.wave} • Kills ${stats.kills}` +
@@ -556,7 +577,7 @@
   });
   $("squadLaunchBtn").addEventListener("click", () => {
     if (!squad || !squad.amHost() || squadRun) return;
-    const members = squad.roster().slice(0, 4).map(m => ({ id: m.id, name: m.name }));
+    const members = squad.roster().slice(0, 4).map(m => ({ id: m.id, name: m.name, paint: m.paint, emblem: m.emblem }));
     squad.sendEvent({ t: "start", diff: $("difficulty").value, members });
     startSquadRun({ diff: $("difficulty").value, members }, true);
   });
@@ -579,6 +600,80 @@
     toast("Controller on: left move • right aim • RT fire • RB dash");
   });
   window.addEventListener("gamepaddisconnected", () => toast("Controller disconnected."));
+
+  // ---------- hangar cosmetics shop ----------
+  const PAINTS = [
+    { id: "#5eeaff", name: "Ion Cyan", cost: 0 },
+    { id: "#34d399", name: "Mint", cost: 100 },
+    { id: "#f472b6", name: "Nova Pink", cost: 200 },
+    { id: "#fbbf24", name: "Solar Gold", cost: 300 },
+    { id: "#a78bfa", name: "Void Violet", cost: 400 },
+    { id: "#fb7185", name: "Crimson", cost: 500 },
+    { id: "#f8fafc", name: "Ghost White", cost: 600 },
+    { id: "#a3e635", name: "Toxic Lime", cost: 750 }
+  ];
+  const EMBLEMS = [
+    { id: "🚀", name: "Rocket", cost: 0 },
+    { id: "⭐", name: "Star", cost: 150 },
+    { id: "🛸", name: "Saucer", cost: 250 },
+    { id: "🔥", name: "Fire", cost: 300 },
+    { id: "💎", name: "Gem", cost: 500 },
+    { id: "👑", name: "Crown", cost: 800 }
+  ];
+  function myEmblem() {
+    const me = auth.currentUser();
+    return (me && me.cosmetics && me.cosmetics.emblem) || "🚀";
+  }
+  function renderHangar() {
+    const me = auth.currentUser();
+    const pg = $("paintGrid"), eg = $("emblemGrid");
+    if (!me) {
+      pg.innerHTML = '<div class="muted" style="font-size:13px">Login to customize your ship.</div>';
+      eg.innerHTML = "";
+      $("hangarCredits").textContent = "0 credits";
+      return;
+    }
+    $("hangarCredits").textContent = (me.credits || 0) + " credits";
+    pg.innerHTML = "";
+    for (const p of PAINTS) {
+      const has = me.cosmetics.paints.includes(p.id);
+      const equipped = me.cosmetics.paint === p.id;
+      const b = document.createElement("button");
+      b.className = "shop-item hangar-item" + (equipped ? " equipped" : "");
+      b.innerHTML = `<span class="swatch" style="background:${p.id}"></span>${escapeHtml(p.name)}<br /><span>${equipped ? "EQUIPPED" : has ? "tap to equip" : "◉" + p.cost}</span>`;
+      b.disabled = equipped;
+      b.addEventListener("click", () => hangarBuy("paint", p));
+      pg.appendChild(b);
+    }
+    eg.innerHTML = "";
+    for (const e of EMBLEMS) {
+      const has = me.cosmetics.emblems.includes(e.id);
+      const equipped = me.cosmetics.emblem === e.id;
+      const b = document.createElement("button");
+      b.className = "shop-item hangar-item" + (equipped ? " equipped" : "");
+      b.innerHTML = `<span class="emblem-big">${e.id}</span>${escapeHtml(e.name)}<br /><span>${equipped ? "EQUIPPED" : has ? "tap to equip" : "◉" + e.cost}</span>`;
+      b.disabled = equipped;
+      b.addEventListener("click", () => hangarBuy("emblem", e));
+      eg.appendChild(b);
+    }
+  }
+  function hangarBuy(kind, item) {
+    const me = auth.currentUser();
+    if (!me) { toast("Login to customize."); openAuth(); return; }
+    const catalog = kind === "paint" ? PAINTS : EMBLEMS;
+    try {
+      const already = (kind === "paint" ? me.cosmetics.paints : me.cosmetics.emblems).includes(item.id);
+      if (already) {
+        auth.equipCosmetic(me.username, kind, item.id, catalog);
+        toast(`${item.name} equipped.`);
+      } else {
+        auth.purchaseCosmetic(me.username, kind, item.id, item.cost, catalog);
+        sfx.pickup();
+        toast(`${item.name} bought + equipped for ◉${item.cost}!`);
+      }
+      refreshUser();
+    } catch (e) { toast(e.message); }
+  }
 
   // ---------- settings ----------
   $("soundSel").addEventListener("change", e => { sfx.setEnabled(e.target.value === "on"); });
@@ -609,7 +704,7 @@
     $("menuOverlay").classList.add("hidden");
     $("gameOverOverlay").classList.add("hidden");
     $("upgradeOverlay").classList.add("hidden");
-    game.start(diff, { bonusHp, bonusDmg, startShield });
+    game.start(diff, { bonusHp, bonusDmg, startShield, paint: me && me.cosmetics && me.cosmetics.paint });
     sfx.startMusic();
     try { if (document.activeElement) document.activeElement.blur(); } catch {}
     $("runInfo").textContent = `— wave 1 • ${diff} • ${me ? me.username : "guest"}${bonusHp ? ` • +${bonusHp} hull` : ""}${bonusDmg > 1 ? ` • +${Math.round((bonusDmg - 1) * 100)}% dmg` : ""}${startShield ? " • 🛡️ shield" : ""} —`;
@@ -622,7 +717,7 @@
   $("againBtn").addEventListener("click", () => {
     if (squadRun) {
       if (squad && squad.amHost()) {
-        const members = squad.roster().slice(0, 4).map(m => ({ id: m.id, name: m.name }));
+        const members = squad.roster().slice(0, 4).map(m => ({ id: m.id, name: m.name, paint: m.paint, emblem: m.emblem }));
         squad.sendEvent({ t: "start", diff: $("difficulty").value, members });
         startSquadRun({ diff: $("difficulty").value, members }, true);
       } else toast("Only the host can relaunch — wait for them.");
@@ -724,7 +819,7 @@
         refreshUser();
         checkDaily(false);
         // post to the worldwide board (fire-and-forget; queued offline)
-        board.submit({ user: me.username, score: data.score, wave: data.wave, kills: data.kills })
+        board.submit({ user: me.username, score: data.score, wave: data.wave, kills: data.kills, emblem: myEmblem() })
           .then(res => { if (res.ok) refreshGlobal(false); });
         $("finalStats").textContent =
           `Score ${data.score} • Wave ${data.wave} • Kills ${data.kills}` +

@@ -186,6 +186,7 @@
       this.conn = null; this.code = null;
       this.id = uid();
       this.joinTs = Date.now();
+      this.cosmetics = opts.cosmetics || {}; // {paint, emblem} shown to the squad
       this.presence = {}; // id -> {id,name,join,seen}
       this._hb = null; this._sweep = null;
       this._seq = 0;
@@ -255,8 +256,8 @@
     _beat() {
       if (!this.conn || !this.code) return;
       this.conn.publish(this.topics().myPresence,
-        JSON.stringify({ id: this.id, name: this.name, join: this.joinTs }), true);
-      this.presence[this.id] = { id: this.id, name: this.name, join: this.joinTs, seen: Date.now() };
+        JSON.stringify({ id: this.id, name: this.name, join: this.joinTs, paint: this.cosmetics.paint || null, emblem: this.cosmetics.emblem || null }), true);
+      this.presence[this.id] = { id: this.id, name: this.name, join: this.joinTs, seen: Date.now(), paint: this.cosmetics.paint || null, emblem: this.cosmetics.emblem || null };
       this._emitRoster();
     }
     _sweepRoster() {
@@ -280,7 +281,9 @@
         try {
           const p = JSON.parse(txt);
           if (p && p.id && p.name) {
-            this.presence[p.id] = { id: p.id, name: String(p.name).slice(0, 16), join: Number(p.join) || 0, seen: Date.now() };
+            const paint = (typeof p.paint === "string" && /^#[0-9a-fA-F]{6}$/.test(p.paint)) ? p.paint : null;
+            const emblem = (typeof p.emblem === "string" && p.emblem.length >= 1 && p.emblem.length <= 8) ? p.emblem : null;
+            this.presence[p.id] = { id: p.id, name: String(p.name).slice(0, 16), join: Number(p.join) || 0, seen: Date.now(), paint, emblem };
             this._emitRoster();
           }
         } catch {}
