@@ -71,7 +71,15 @@
   $("doRegister").addEventListener("click", () => doAuth("register"));
   $("authPass").addEventListener("keydown", e => { if (e.key === "Enter") doAuth("login"); });
   $("authUser").addEventListener("keydown", e => { if (e.key === "Enter") doAuth("login"); });
-  $("logoutBtn").addEventListener("click", () => { auth.logout(); dailyAutoShown = false; refreshUser(); toast("Logged out."); });
+  $("logoutBtn").addEventListener("click", () => {
+    const me = auth.currentUser();
+    if (me) {
+      const refund = loadout.hull * SHOP.hull.cost + loadout.dmg * SHOP.dmg.cost + loadout.shield * SHOP.shield.cost;
+      if (refund > 0) auth.addCredits(me.username, refund);
+    }
+    loadout.hull = loadout.dmg = loadout.shield = 0;
+    auth.logout(); dailyAutoShown = false; refreshUser(); toast("Logged out.");
+  });
 
   $("changePwBtn").addEventListener("click", async () => {
     const me = auth.currentUser();
@@ -100,6 +108,59 @@
     return Math.min(30, Math.floor((credits || 0) / 100) * 2);
   }
 
+  // ---------- pre-flight shop (coins get a real use) ----------
+  const SHOP = {
+    hull: { cost: 150, hp: 20, max: 5, name: "+20 Hull" },
+    dmg: { cost: 200, mult: 0.15, max: 4, name: "+15% Damage" },
+    shield: { cost: 100, secs: 8, max: 2, name: "8s Shield" }
+  };
+  const loadout = { hull: 0, dmg: 0, shield: 0 };
+  function renderLoadout() {
+    const me = auth.currentUser();
+    const box = $("loadoutBox");
+    if (!me) {
+      $("loadCredits").textContent = "0";
+      $("loadoutSummary").textContent = "Login to spend coins on Hull / Damage / Shield.";
+      ["buyHullBtn", "buyDmgBtn", "buyShieldBtn"].forEach(id => { $(id).disabled = true; });
+      return;
+    }
+    $("loadCredits").textContent = me.credits || 0;
+    const parts = [];
+    if (loadout.hull) parts.push(`❤️ +${loadout.hull * SHOP.hull.hp} Hull`);
+    if (loadout.dmg) parts.push(`💥 +${loadout.dmg * 15}% Damage`);
+    if (loadout.shield) parts.push(`🛡️ ${loadout.shield * SHOP.shield.secs}s Shield`);
+    $("loadoutSummary").textContent = parts.length ? ("Fitted: " + parts.join(" • ") + " (used on next launch)") : "No extras fitted.";
+    $("buyHullBtn").disabled = loadout.hull >= SHOP.hull.max || (me.credits || 0) < SHOP.hull.cost;
+    $("buyDmgBtn").disabled = loadout.dmg >= SHOP.dmg.max || (me.credits || 0) < SHOP.dmg.cost;
+    $("buyShieldBtn").disabled = loadout.shield >= SHOP.shield.max || (me.credits || 0) < SHOP.shield.cost;
+    $("buyHullBtn").innerHTML = `❤️ +20 Hull${loadout.hull ? ` x${loadout.hull}` : ""}<br /><span>◉${SHOP.hull.cost}</span>`;
+    $("buyDmgBtn").innerHTML = `💥 +15% Damage${loadout.dmg ? ` x${loadout.dmg}` : ""}<br /><span>◉${SHOP.dmg.cost}</span>`;
+    $("buyShieldBtn").innerHTML = `🛡️ 8s Shield${loadout.shield ? ` x${loadout.shield}` : ""}<br /><span>◉${SHOP.shield.cost}</span>`;
+  }
+  function buy(item) {
+    const me = auth.currentUser();
+    if (!me) { toast("Login to spend coins."); openAuth(); return; }
+    const s = SHOP[item];
+    if (loadout[item] >= s.max) { toast("Maxed out for this flight."); return; }
+    if ((me.credits || 0) < s.cost) { toast("Not enough credits — play runs + claim dailies."); return; }
+    auth.addCredits(me.username, -s.cost);
+    loadout[item]++;
+    sfx.pickup();
+    refreshUser();
+  }
+  $("buyHullBtn").addEventListener("click", () => buy("hull"));
+  $("buyDmgBtn").addEventListener("click", () => buy("dmg"));
+  $("buyShieldBtn").addEventListener("click", () => buy("shield"));
+  $("clearLoadoutBtn").addEventListener("click", () => {
+    const me = auth.currentUser();
+    if (!me) return;
+    const refund = loadout.hull * SHOP.hull.cost + loadout.dmg * SHOP.dmg.cost + loadout.shield * SHOP.shield.cost;
+    if (refund > 0) auth.addCredits(me.username, refund);
+    loadout.hull = loadout.dmg = loadout.shield = 0;
+    refreshUser();
+    toast(refund > 0 ? `Loadout cleared, ◉${refund} refunded.` : "Loadout cleared.");
+  });
+
   function refreshUser() {
     const me = auth.currentUser();
     $("loginBtn").hidden = !!me;
@@ -118,15 +179,23 @@
       $("creditsVal").textContent = me.credits || 0;
       const b = bonusHpFor(me.credits);
       $("perkLine").textContent = b > 0
-        ? `◉ ${me.credits} credits → +${b} starting hull. Earn more by playing + daily streaks.`
-        : "Earn credits by playing + daily streaks — 100 credits = +2 starting hull (max +30).";
+        ? `◉ ${me.credits} credits → passive +${b} hull every run, plus pre-flight shop below Launch.`
+        : "Earn credits by playing + daily streaks, then spend them in the pre-flight shop below Launch.";
+      // FIX: don't show Login next to Launch when already logged in
+      $("overlayLogin").hidden = true;
+      $("overlayTitle").textContent = `Ready, ${me.username}?`;
+      $("overlaySub").textContent = `Ranked • ${me.credits || 0} credits • streak ${(me.daily && me.daily.streak) || 0}🔥 — fit your ship below, then Launch.`;
     } else {
       $("statBest").textContent = "0";
       $("statGames").textContent = "0";
       $("statKills").textContent = "0";
       $("perkLine").textContent = "Login to earn credits, streaks, and leaderboard rank.";
+      $("overlayLogin").hidden = false;
+      $("overlayTitle").textContent = "Ready for launch?";
+      $("overlaySub").textContent = "Login to rank on the leaderboard. Guests can still fly.";
     }
     renderBoard();
+    renderLoadout();
   }
 
   function fmtDate(ts) {
@@ -225,22 +294,27 @@
   function launch() {
     const diff = $("difficulty").value;
     const me = auth.currentUser();
-    const bonusHp = me ? bonusHpFor(me.credits) : 0;
+    const passiveHp = me ? bonusHpFor(me.credits) : 0;
+    const bonusHp = passiveHp + (me ? loadout.hull * SHOP.hull.hp : 0);
+    const bonusDmg = me && loadout.dmg ? 1 + loadout.dmg * SHOP.dmg.mult : 1;
     // streak perk: claimed today + streak>=3 → start with shield
-    let startShield = 0;
+    let startShield = me ? loadout.shield * SHOP.shield.secs : 0;
     if (me && me.daily && me.daily.lastClaim) {
       try {
         const today = new Date().toISOString().slice(0, 10);
-        if (me.daily.lastClaim === today && (me.daily.streak || 0) >= 3) startShield = 6;
+        if (me.daily.lastClaim === today && (me.daily.streak || 0) >= 3) startShield += 6;
       } catch {}
     }
+    // single-use loadout, consumed on launch (already folded into bonuses above)
+    loadout.hull = loadout.dmg = loadout.shield = 0;
     $("menuOverlay").classList.add("hidden");
     $("gameOverOverlay").classList.add("hidden");
     $("upgradeOverlay").classList.add("hidden");
-    game.start(diff, { bonusHp, startShield });
+    game.start(diff, { bonusHp, bonusDmg, startShield });
     sfx.startMusic();
     try { if (document.activeElement) document.activeElement.blur(); } catch {}
-    $("runInfo").textContent = `— wave 1 • ${diff} • ${me ? me.username : "guest"}${bonusHp ? ` • +${bonusHp} hull` : ""}${startShield ? " • 🛡️ streak shield" : ""} —`;
+    $("runInfo").textContent = `— wave 1 • ${diff} • ${me ? me.username : "guest"}${bonusHp ? ` • +${bonusHp} hull` : ""}${bonusDmg > 1 ? ` • +${Math.round((bonusDmg - 1) * 100)}% dmg` : ""}${startShield ? " • 🛡️ shield" : ""} —`;
+    if (me) refreshUser(); // refresh shop/credits after consuming loadout
     if (game.isMobile) toast("Left stick: move • Right stick: aim+fire");
   }
   $("playBtn").addEventListener("click", launch);
@@ -251,6 +325,7 @@
     $("gameOverOverlay").classList.add("hidden");
     $("menuOverlay").classList.remove("hidden");
     game.state = "menu";
+    refreshUser();
   });
   $("restartBtn").addEventListener("click", launch);
   const pauseBtn = $("pauseBtn");

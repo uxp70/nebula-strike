@@ -221,6 +221,7 @@
         this.p.maxHp += opts.bonusHp;
         this.p.hp = this.p.maxHp;
       }
+      if (opts && opts.bonusDmg) this.p.dmg *= opts.bonusDmg;
       if (opts && opts.startShield) this.p.shield = opts.startShield;
       this.state = "playing";
       this.onEvent("start");
