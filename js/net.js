@@ -79,11 +79,12 @@
         ws.binaryType = "arraybuffer";
         self.ws = ws;
         ws.onopen = () => {
-          // CONNECT: proto MQTT v4, clean session, keepalive 40s, optional Will
+          // CONNECT flags byte: bit1 clean session, bit2 will retain,
+          // bit3 will flag, bit0 reserved (must be 0)
           let flags = 0x02; // clean session
           const parts = [encStr("MQTT"), new Uint8Array([4, flags, 0, 40]), encStr(self.clientId)];
           if (self.will) {
-            parts[1][1] = flags = 0x02 | 0x04 | 0x01; // clean + will flag + will qos0 + will retain
+            parts[1][1] = flags = 0x02 | 0x04 | 0x08; // clean + will retain + will flag
             parts.push(encStr(self.will.topic));
             const wb = typeof self.will.payload === "string" ? TE.encode(self.will.payload) : self.will.payload;
             const wl = new Uint8Array(2); wl[0] = (wb.length >> 8) & 0xff; wl[1] = wb.length & 0xff;
@@ -237,7 +238,7 @@
           return code;
         } catch (e) { lastErr = e; }
       }
-      this.onStatus("could not reach squad relay");
+      this.onStatus("relay error: " + ((lastErr && lastErr.message) || "unreachable"));
       throw lastErr || new Error("no relay");
     }
     leave() {

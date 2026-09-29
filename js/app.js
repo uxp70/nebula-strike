@@ -529,7 +529,7 @@
       const code = await s.create();
       toast("Room " + code + " — share the code!");
       renderSquad();
-    } catch { toast("Could not reach squad relay. Try again."); }
+    } catch (e) { toast("Squad relay failed: " + ((e && e.message) || "try again")); }
     $("createSquadBtn").disabled = false;
   });
   $("joinSquadBtn").addEventListener("click", async () => {
@@ -543,7 +543,7 @@
       await s.join(code);
       toast("Joined room " + s.code);
       renderSquad();
-    } catch { toast("Could not reach squad relay. Try again."); }
+    } catch (e) { toast("Squad relay failed: " + ((e && e.message) || "try again")); }
     $("joinSquadBtn").disabled = false;
   });
   $("leaveSquadBtn").addEventListener("click", () => {
