@@ -9,16 +9,20 @@
   };
 
   const UPGRADES = [
-    { id: "rapid",   name: "⚡ Overclock",   desc: "+22% fire rate", apply(p) { p.fireCdMax *= 0.82; } },
-    { id: "dmg",     name: "💥 Heavy rounds", desc: "+30% damage", apply(p) { p.dmg *= 1.3; } },
-    { id: "speed",   name: "🌀 Ion thrusters", desc: "+12% speed, +dash recharge", apply(p) { p.speed *= 1.12; p.dashCdMax *= 0.9; } },
-    { id: "hull",    name: "🛡️ Nano hull",  desc: "+30 max HP + full repair", apply(p) { p.maxHp += 30; p.hp = p.maxHp; } },
-    { id: "multi",   name: "🔱 Split cannon", desc: "+1 projectile", apply(p) { p.streams = Math.min(4, p.streams + 1); } },
-    { id: "magnet",  name: "🧲 Tractor core", desc: "bigger pickup radius", apply(p) { p.magnet += 60; } }
+    { id: "rapid",   name: "⚡ Overclock",   desc: "+22% fire rate (squad)", apply(a) { a.fireCdMax *= 0.82; } },
+    { id: "dmg",     name: "💥 Heavy rounds", desc: "+30% damage (squad)", apply(a) { a.dmg *= 1.3; } },
+    { id: "speed",   name: "🌀 Ion thrusters", desc: "+12% speed, +dash recharge", apply(a) { a.speed *= 1.12; a.dashCdMax *= 0.9; } },
+    { id: "hull",    name: "🛡️ Nano hull",  desc: "+30 max HP + full repair (squad)", apply(a, g) { a.maxHp += 30; if (g) g.healAll(); } },
+    { id: "multi",   name: "🔱 Split cannon", desc: "+1 projectile (squad)", apply(a) { a.streams = Math.min(4, a.streams + 1); } },
+    { id: "magnet",  name: "🧲 Tractor core", desc: "bigger pickup radius", apply(a) { a.magnet += 60; } }
   ];
+
+  const SQUAD_COLORS = ["#5eeaff", "#34d399", "#f472b6", "#fbbf24"];
+  const SQUAD_ARENA = { w: 960, h: 540 };
 
   function rand(a, b) { return a + Math.random() * (b - a); }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function dead(v, dz) { return Math.abs(v) < dz ? 0 : v; }
   function isCoarse() {
     return (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || ("ontouchstart" in window);
   }
@@ -197,15 +201,87 @@
 
     tryDash() { this.requestDash = true; }
 
-    reset() {
-      this.p = {
-        x: this.W / 2, y: this.H / 2, r: 14,
-        hp: 100, maxHp: 100, speed: 260, angle: 0,
-        fireCd: 0, fireCdMax: 0.16, dmg: 12, streams: 1,
-        level: 1, xp: 0, xpNext: 30, magnet: 90,
-        shield: 0, doubleT: 0, dashCd: 0, dashCdMax: 2.2, dashT: 0,
-        inv: 0
+    _mkPlayer(id, name, color, x, y) {
+      return {
+        id, name, color, x, y, r: 14, hp: 100, maxHp: 100,
+        angle: 0, fireCd: 0, shield: 0, doubleT: 0,
+        dashCd: 0, dashT: 0, inv: 0, alive: true,
+        input: { mx: 0, my: 0, ax: 0, ay: 0, fire: false, dash: false }
       };
+    }
+    localPlayer() {
+      return this.players.find(pl => pl.id === this.localId) || this.players[0];
+    }
+    syncMirrors() {
+      // keep this.p / this.coins pointing at the LOCAL player for HUD + solo code
+      this.p = this.localPlayer();
+      if (this.p) {
+        this.p.maxHp = this.arm.maxHp;
+        this.p.level = this.lvl.level; this.p.xp = this.lvl.xp; this.p.xpNext = this.lvl.xpNext;
+      }
+      this.coins = (this.coinMap && this.p && this.coinMap[this.p.id]) || 0;
+    }
+    healAll() {
+      for (const pl of this.players) { pl.maxHp = this.arm.maxHp; pl.hp = this.arm.maxHp; }
+    }
+
+    // ---------- unified input: keyboard + touch + controller ----------
+    pollPad() {
+      try {
+        const gps = (typeof navigator !== "undefined" && navigator.getGamepads) ? navigator.getGamepads() : [];
+        for (const gp of gps) {
+          if (gp && gp.connected) return gp;
+        }
+      } catch {}
+      return null;
+    }
+    sampleInput() {
+      // returns {mx,my,ax,ay,fire,dash} merged across devices; edge-triggers dash/pause/mute
+      let mx = 0, my = 0;
+      if (this.keys["w"] || this.keys["arrowup"]) my -= 1;
+      if (this.keys["s"] || this.keys["arrowdown"]) my += 1;
+      if (this.keys["a"] || this.keys["arrowleft"]) mx -= 1;
+      if (this.keys["d"] || this.keys["arrowright"]) mx += 1;
+      if (this.touch.moveId !== null) { mx = this.touch.mx; my = this.touch.my; }
+      let ax = 0, ay = 0, aimPad = false;
+      let fire = !!(this.mouse.down || this.keys[" "] || this.touch.aimActive);
+      let dash = !!(this.keys["shift"] || this.requestDash);
+      this.requestDash = false;
+      this.keys["shift"] = false;
+      const gp = this.pollPad();
+      this.padActive = !!gp;
+      if (gp) {
+        try {
+          const lx = dead(gp.axes[0] || 0, 0.18), ly = dead(gp.axes[1] || 0, 0.18);
+          if (lx || ly) {
+            const m = Math.hypot(lx, ly);
+            mx = m > 1 ? lx / m : lx; my = m > 1 ? ly / m : ly;
+          }
+          const rx = gp.axes[2] || 0, ry = gp.axes[3] || 0;
+          if (Math.hypot(rx, ry) > 0.3) { ax = rx; ay = ry; aimPad = true; }
+          const b = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
+          const bv = (i) => (gp.buttons[i] && gp.buttons[i].value) || 0;
+          if (bv(7) > 0.25 || b(0)) fire = true;
+          const dashNow = b(5) || b(1) || b(4);
+          if (dashNow && !this._padDashPrev) dash = true;
+          this._padDashPrev = dashNow;
+          if (b(9) && !this._padPausePrev) this.togglePause();
+          this._padPausePrev = b(9);
+          if (b(8) && !this._padMutePrev) this.onEvent("mute");
+          this._padMutePrev = b(8);
+        } catch {}
+      }
+      return { mx, my, ax, ay, aimPad, fire, dash };
+    }
+
+    reset() {
+      // shared squad-wide combat stats (upgrades mutate these)
+      this.arm = { dmg: 12, streams: 1, fireCdMax: 0.16, speed: 260, magnet: 90, maxHp: 100, dashCdMax: 2.2 };
+      this.lvl = { level: 1, xp: 0, xpNext: 30 };
+      this.players = [this._mkPlayer("local", "You", SQUAD_COLORS[0], this.W / 2, this.H / 2)];
+      this.localId = "local";
+      this.coinMap = { local: 0 };
+      this.squad = null;
       this.bullets = []; this.enemies = []; this.parts = [];
       this.pickups = []; this.ebullets = [];
       this.score = 0; this.kills = 0; this.wave = 1; this.coins = 0;
@@ -213,17 +289,16 @@
       this.time = 0; this.shake = 0; this.startMs = Date.now();
       this.touch.mx = 0; this.touch.my = 0; this.touch.aimActive = false;
       this.requestDash = false;
+      this.syncMirrors();
     }
 
     start(diff, opts) {
       if (diff) this.difficulty = diff;
       this.resize(false);
       this.reset();
-      if (opts && opts.bonusHp) {
-        this.p.maxHp += opts.bonusHp;
-        this.p.hp = this.p.maxHp;
-      }
-      if (opts && opts.bonusDmg) this.p.dmg *= opts.bonusDmg;
+      if (opts && opts.bonusHp) this.arm.maxHp += opts.bonusHp;
+      if (opts && opts.bonusDmg) this.arm.dmg *= opts.bonusDmg;
+      this.healAll();
       if (opts && opts.startShield) this.p.shield = opts.startShield;
       this.state = "playing";
       this.onEvent("start");
@@ -235,14 +310,111 @@
     }
     gameOver() {
       this.state = "over";
-      this.onEvent("over", { score: Math.floor(this.score), wave: this.wave, kills: this.kills, ms: Date.now() - this.startMs, coins: this.coins || 0 });
+      this.syncMirrors();
+      this.onEvent("over", { score: Math.floor(this.score), wave: this.wave, kills: this.kills, ms: Date.now() - this.startMs, coins: this.coins || 0, squad: !!(this.squad && this.squad.active) });
+    }
+
+    // ---------- squad (online co-op) ----------
+    setArena(w, h) {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      this.W = w; this.H = h;
+      this.cv.width = Math.floor(w * dpr); this.cv.height = Math.floor(h * dpr);
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.cv.style.height = "";
+      this._stars = Array.from({ length: this.isMobile ? 70 : 120 },
+        () => ({ x: Math.random() * w, y: Math.random() * h, z: rand(0.2, 1) }));
+    }
+    startSquad(opts) {
+      // opts: {isHost, members:[{id,name}], diff, myId, bonusHp, bonusDmg, startShield}
+      this.difficulty = opts.diff || "pilot";
+      this.setArena(SQUAD_ARENA.w, SQUAD_ARENA.h);
+      this.arm = { dmg: 12, streams: 1, fireCdMax: 0.16, speed: 260, magnet: 90, maxHp: 100, dashCdMax: 2.2 };
+      this.lvl = { level: 1, xp: 0, xpNext: 30 };
+      this.coinMap = {};
+      this.bullets = []; this.enemies = []; this.parts = [];
+      this.pickups = []; this.ebullets = [];
+      this.score = 0; this.kills = 0; this.wave = 1;
+      this.spawnT = 0; this.spawned = 0; this.waveTotal = 8;
+      this.time = 0; this.shake = 0; this.startMs = Date.now();
+      this.localId = opts.myId;
+      this.players = opts.members.map((m, i) => {
+        const pl = this._mkPlayer(m.id, m.name, SQUAD_COLORS[i % SQUAD_COLORS.length],
+          this.W / 2 + (i - (opts.members.length - 1) / 2) * 60, this.H / 2);
+        this.coinMap[m.id] = 0;
+        return pl;
+      });
+      if (opts.bonusHp) this.arm.maxHp += opts.bonusHp;
+      if (opts.bonusDmg) this.arm.dmg *= opts.bonusDmg;
+      this.healAll();
+      const me = this.localPlayer();
+      if (me && opts.startShield) me.shield = opts.startShield;
+      this.squad = { active: true, isHost: !!opts.isHost };
+      this.state = opts.isHost ? "playing" : "remote";
+      this.syncMirrors();
+      this.onEvent("start");
+      if (!this.loopOn) { this.loopOn = true; this.last = performance.now(); requestAnimationFrame(t => this.loop(t)); }
+    }
+    endSquad() {
+      this.squad = null;
+      this.state = "menu";
+      this.resize(false);
+      this.reset();
+    }
+    genSnap() {
+      const R = (n) => Math.round(n * 10) / 10;
+      return {
+        v: 1, wave: this.wave, score: Math.floor(this.score), kills: this.kills,
+        lvl: { ...this.lvl }, arm: { ...this.arm },
+        spawned: this.spawned, waveTotal: this.waveTotal,
+        coins: { ...this.coinMap },
+        players: this.players.map(p => ({
+          id: p.id, name: p.name, color: p.color,
+          x: R(p.x), y: R(p.y), hp: Math.ceil(p.hp), angle: R(p.angle),
+          alive: p.alive, shield: R(p.shield), doubleT: R(p.doubleT),
+          dashT: R(p.dashT), ax: R(p.input.ax || 0), ay: R(p.input.ay || 0)
+        })),
+        enemies: this.enemies.slice(0, 48).map(e => ({ ...e, x: R(e.x), y: R(e.y), hp: Math.ceil(e.hp), t: R(e.t), fireT: R(e.fireT) })),
+        bullets: this.bullets.slice(0, 80).map(b => [R(b.x), R(b.y), R(b.vx), R(b.vy), R(b.life), b.dmg]),
+        ebullets: this.ebullets.slice(0, 80).map(b => [R(b.x), R(b.y), R(b.vx), R(b.vy), R(b.life), b.dmg]),
+        pickups: this.pickups.slice(0, 60)
+      };
+    }
+    applySnap(s) {
+      if (!s || s.v !== 1) return false;
+      this.wave = s.wave; this.score = s.score; this.kills = s.kills;
+      this.lvl = { ...s.lvl }; this.arm = { ...s.arm };
+      this.spawned = s.spawned; this.waveTotal = s.waveTotal;
+      this.coinMap = { ...s.coins };
+      this.players = s.players.map(p => {
+        const pl = this._mkPlayer(p.id, p.name, p.color, p.x, p.y);
+        Object.assign(pl, {
+          hp: p.hp, maxHp: this.arm.maxHp, angle: p.angle, alive: p.alive,
+          shield: p.shield, doubleT: p.doubleT, dashT: p.dashT
+        });
+        pl.input.ax = p.ax; pl.input.ay = p.ay;
+        return pl;
+      });
+      this.enemies = s.enemies.map(e => ({ ...e }));
+      this.bullets = s.bullets.map(b => ({ x: b[0], y: b[1], vx: b[2], vy: b[3], life: b[4], dmg: b[5] }));
+      this.ebullets = s.ebullets.map(b => ({ x: b[0], y: b[1], vx: b[2], vy: b[3], life: b[4], dmg: b[5] }));
+      this.pickups = s.pickups.map(k => ({ ...k }));
+      this.syncMirrors();
+      return true;
+    }
+    takeOver(snap) {
+      if (!this.applySnap(snap)) return false;
+      if (this.squad) this.squad.isHost = true;
+      this.state = "playing";
+      this.last = performance.now();
+      return true;
     }
 
     pendingUpgrades() { return this._pendingUps || null; }
     chooseUpgrade(id) {
       const ups = this._pendingUps; if (!ups) return;
       const u = ups.find(x => x.id === id); if (!u) return;
-      u.apply(this.p);
+      u.apply(this.arm, this);
+      this.syncMirrors();
       this._pendingUps = null;
       this.state = "playing";
       this.last = performance.now();
@@ -269,7 +441,7 @@
         else type = "chaser";
       }
       const base = { x, y, t: 0, fireT: rand(1, 2.5) };
-      const hpMul = cfg.enemyHp * (1 + (this.wave - 1) * 0.22);
+      const hpMul = cfg.enemyHp * (1 + (this.wave - 1) * 0.22) * (1 + 0.25 * (this.players.length - 1));
       if (type === "chaser") Object.assign(base, { type, r: 14, hp: 26 * hpMul, speed: 105 * cfg.enemySpeed, dmg: 12 * cfg.enemyDmg, score: 50, color: "#f472b6" });
       if (type === "speeder") Object.assign(base, { type, r: 10, hp: 14 * hpMul, speed: 185 * cfg.enemySpeed, dmg: 8 * cfg.enemyDmg, score: 70, color: "#5eeaff" });
       if (type === "splitter") Object.assign(base, { type, r: 18, hp: 44 * hpMul, speed: 80 * cfg.enemySpeed, dmg: 14 * cfg.enemyDmg, score: 90, color: "#a78bfa" });
@@ -300,65 +472,73 @@
 
     update(dt) {
       const cfg = CONFIG[this.difficulty];
+      const arm = this.arm;
       this.time += dt;
-      const p = this.p;
+      const nP = this.players.length;
+      const me = this.localPlayer();
+      const lin = this.sampleInput();
+      if (me) { me.input.mx = lin.mx; me.input.my = lin.my; }
 
-      // --- movement ---
-      let mx = 0, my = 0;
-      if (this.keys["w"] || this.keys["arrowup"]) my -= 1;
-      if (this.keys["s"] || this.keys["arrowdown"]) my += 1;
-      if (this.keys["a"] || this.keys["arrowleft"]) mx -= 1;
-      if (this.keys["d"] || this.keys["arrowright"]) mx += 1;
-      if (this.touch.moveId !== null) { mx = this.touch.mx; my = this.touch.my; }
-      const dashing = p.dashT > 0;
-      const spd = p.speed * (dashing ? 2.6 : 1);
-      const ml = Math.hypot(mx, my);
-      if (ml > 0.05) {
-        const nx = mx / (ml > 1 ? ml : 1), ny = my / (ml > 1 ? ml : 1);
-        p.x = clamp(p.x + nx * spd * dt, p.r, this.W - p.r);
-        p.y = clamp(p.y + ny * spd * dt, p.r, this.H - p.r);
-      }
-      p.dashT = Math.max(0, p.dashT - dt);
-      p.dashCd = Math.max(0, p.dashCd - dt);
-      const wantDash = this.keys["shift"] || this.requestDash;
-      this.requestDash = false;
-      if (wantDash && p.dashCd <= 0 && ml > 0.15) {
-        p.dashT = 0.16; p.dashCd = p.dashCdMax;
-        this.explode(p.x, p.y, "#5eeaff", 10, 160);
-        this.sfx.blip(300, 0.15, "sine", 0.1, 300);
-        this.keys["shift"] = false;
-      }
-      p.inv = Math.max(0, p.inv - dt);
-      p.shield = Math.max(0, p.shield - dt);
-      p.doubleT = Math.max(0, p.doubleT - dt);
-
-      // aim — on mobile with no aim touch, auto-aim nearest enemy
-      if (!(this.touch.aimId !== null) && this.isMobile && !this.mouse.down) {
-        let best = null, bd = Infinity;
-        for (const e of this.enemies) {
-          const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2;
-          if (d < bd) { bd = d; best = e; }
+      // --- per-player movement / aim / fire ---
+      for (const pl of this.players) {
+        if (!pl.alive) continue;
+        const isMe = (pl === me);
+        const inp = isMe ? lin : pl.input;
+        const ml = Math.hypot(inp.mx, inp.my);
+        const dashing = pl.dashT > 0;
+        const spd = arm.speed * (dashing ? 2.6 : 1);
+        if (ml > 0.05) {
+          const nx = inp.mx / (ml > 1 ? ml : 1), ny = inp.my / (ml > 1 ? ml : 1);
+          pl.x = clamp(pl.x + nx * spd * dt, pl.r, this.W - pl.r);
+          pl.y = clamp(pl.y + ny * spd * dt, pl.r, this.H - pl.r);
         }
-        if (best) { this.mouse.x = best.x; this.mouse.y = best.y; }
-      }
-      p.angle = Math.atan2(this.mouse.y - p.y, this.mouse.x - p.x);
-
-      // --- fire ---
-      p.fireCd -= dt;
-      const firing = this.mouse.down || this.keys[" "] || this.touch.aimActive;
-      if (firing && p.fireCd <= 0) {
-        p.fireCd = p.fireCdMax;
-        const n = p.streams + (p.doubleT > 0 ? 1 : 0);
-        for (let i = 0; i < n; i++) {
-          const off = (i - (n - 1) / 2) * 0.12;
-          const a = p.angle + off;
-          this.bullets.push({ x: p.x + Math.cos(a) * 20, y: p.y + Math.sin(a) * 20, vx: Math.cos(a) * 640, vy: Math.sin(a) * 640, life: 1.1, dmg: p.dmg });
+        pl.dashT = Math.max(0, pl.dashT - dt);
+        pl.dashCd = Math.max(0, pl.dashCd - dt);
+        if (inp.dash && pl.dashCd <= 0 && ml > 0.15) {
+          pl.dashT = 0.16; pl.dashCd = arm.dashCdMax;
+          this.explode(pl.x, pl.y, pl.color, 10, 160);
+          this.sfx.blip(300, 0.15, "sine", 0.1, 300);
         }
-        this.sfx.shoot();
+        pl.inv = Math.max(0, pl.inv - dt);
+        pl.shield = Math.max(0, pl.shield - dt);
+        pl.doubleT = Math.max(0, pl.doubleT - dt);
+
+        // aim
+        if (isMe) {
+          if (lin.aimPad) {
+            pl.angle = Math.atan2(lin.ay, lin.ax);
+          } else {
+            if (!(this.touch.aimId !== null) && (this.isMobile || this.padActive) && !this.mouse.down && !lin.fire) {
+              let best = null, bd = Infinity;
+              for (const e of this.enemies) {
+                const d = (e.x - pl.x) ** 2 + (e.y - pl.y) ** 2;
+                if (d < bd) { bd = d; best = e; }
+              }
+              if (best) { this.mouse.x = best.x; this.mouse.y = best.y; }
+            }
+            pl.angle = Math.atan2(this.mouse.y - pl.y, this.mouse.x - pl.x);
+          }
+        } else if (Math.hypot(inp.ax, inp.ay) > 0.25) {
+          pl.angle = Math.atan2(inp.ay, inp.ax);
+        }
+
+        // fire
+        pl.fireCd -= dt;
+        const firing = isMe ? lin.fire : !!inp.fire;
+        if (firing && pl.fireCd <= 0) {
+          pl.fireCd = arm.fireCdMax;
+          const n = arm.streams + (pl.doubleT > 0 ? 1 : 0);
+          for (let i = 0; i < n; i++) {
+            const off = (i - (n - 1) / 2) * 0.12;
+            const a = pl.angle + off;
+            this.bullets.push({ x: pl.x + Math.cos(a) * 20, y: pl.y + Math.sin(a) * 20, vx: Math.cos(a) * 640, vy: Math.sin(a) * 640, life: 1.1, dmg: arm.dmg });
+          }
+          if (isMe) this.sfx.shoot();
+        }
       }
 
-      // --- waves ---
-      this.waveTotal = 6 + this.wave * 2;
+      // --- waves (scaled for squad size) ---
+      this.waveTotal = 6 + this.wave * 2 + 3 * (nP - 1);
       this.spawnT -= dt;
       if (this.spawned < this.waveTotal && this.spawnT <= 0) {
         this.spawnT = 0.55 * cfg.spawnGap;
@@ -366,15 +546,43 @@
       } else if (this.spawned >= this.waveTotal && this.enemies.length === 0) {
         this.wave++;
         this.spawned = 0;
-        p.hp = Math.min(p.maxHp, p.hp + 15);
+        for (const pl of this.players) pl.hp = Math.min(arm.maxHp, pl.hp + 15);
         this.onEvent("wave", { wave: this.wave });
       }
 
-      // --- enemies ---
+      const alivePlayers = () => this.players.filter(pl => pl.alive);
+      const nearest = (x, y) => {
+        let best = null, bd = Infinity;
+        for (const pl of this.players) {
+          if (!pl.alive) continue;
+          const d = (pl.x - x) ** 2 + (pl.y - y) ** 2;
+          if (d < bd) { bd = d; best = pl; }
+        }
+        return best;
+      };
+      const hurt = (pl, dmg) => {
+        if (pl.shield > 0) dmg *= 0.25;
+        pl.hp -= dmg;
+        pl.inv = 0.5;
+        this.shake = this.isMobile ? 5 : 8;
+        this.explode(pl.x, pl.y, "#fb7185", 12, 260);
+        this.sfx.hurt();
+        this.onEvent("hud");
+        if (pl.hp <= 0) {
+          pl.hp = 0; pl.alive = false;
+          this.explode(pl.x, pl.y, "#fff", 40, 380); this.sfx.boom();
+          if (!alivePlayers().length) { this.gameOver(); return true; }
+        }
+        return false;
+      };
+
+      // --- enemies (target nearest alive player) ---
       for (let i = this.enemies.length - 1; i >= 0; i--) {
         const e = this.enemies[i];
         e.t += dt;
-        const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1;
+        const tgt = nearest(e.x, e.y);
+        if (!tgt) continue;
+        const dx = tgt.x - e.x, dy = tgt.y - e.y, d = Math.hypot(dx, dy) || 1;
         if (e.type === "sniper") {
           if (d > 320) { e.x += (dx / d) * e.speed * dt; e.y += (dy / d) * e.speed * dt; }
           else if (d < 220) { e.x -= (dx / d) * e.speed * dt; e.y -= (dy / d) * e.speed * dt; }
@@ -402,16 +610,12 @@
           e.x += (nx * e.speed - ny * wob * 0.3) * dt;
           e.y += (ny * e.speed + nx * wob * 0.3) * dt;
         }
-        if (d < e.r + p.r && p.inv <= 0 && p.dashT <= 0) {
-          let dmg = e.dmg;
-          if (p.shield > 0) dmg *= 0.25;
-          p.hp -= dmg;
-          p.inv = 0.5;
-          this.shake = this.isMobile ? 5 : 8;
-          this.explode(p.x, p.y, "#fb7185", 12, 260);
-          this.sfx.hurt();
-          this.onEvent("hud");
-          if (p.hp <= 0) { p.hp = 0; this.explode(p.x, p.y, "#fff", 40, 380); this.sfx.boom(); this.gameOver(); return; }
+        for (const pl of alivePlayers()) {
+          const pd = Math.hypot(pl.x - e.x, pl.y - e.y);
+          if (pd < e.r + pl.r && pl.inv <= 0 && pl.dashT <= 0) {
+            if (hurt(pl, e.dmg)) return;
+            break;
+          }
         }
       }
 
@@ -441,36 +645,43 @@
       for (let i = this.ebullets.length - 1; i >= 0; i--) {
         const b = this.ebullets[i];
         b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
-        const dd = (b.x - p.x) ** 2 + (b.y - p.y) ** 2;
-        if (dd < (p.r) ** 2 && p.inv <= 0 && p.dashT <= 0) {
-          let dmg = b.dmg;
-          if (p.shield > 0) dmg *= 0.25;
-          p.hp -= dmg; p.inv = 0.5; this.shake = this.isMobile ? 4 : 6;
-          this.sfx.hurt();
-          this.ebullets.splice(i, 1);
-          if (p.hp <= 0) { p.hp = 0; this.gameOver(); return; }
-          continue;
+        let consumed = false;
+        for (const pl of alivePlayers()) {
+          const dd = (b.x - pl.x) ** 2 + (b.y - pl.y) ** 2;
+          if (dd < (pl.r) ** 2 && pl.inv <= 0 && pl.dashT <= 0) {
+            if (hurt(pl, b.dmg)) return;
+            consumed = true;
+            break;
+          }
         }
+        if (consumed) { this.ebullets.splice(i, 1); continue; }
         if (b.life <= 0) this.ebullets.splice(i, 1);
       }
 
-      // --- pickups ---
+      // --- pickups (any alive player grabs) ---
       for (let i = this.pickups.length - 1; i >= 0; i--) {
         const k = this.pickups[i];
         k.life -= dt;
-        const dx = p.x - k.x, dy = p.y - k.y, d = Math.hypot(dx, dy) || 1;
-        if (d < p.magnet) { k.x += (dx / d) * 260 * dt; k.y += (dy / d) * 260 * dt; }
-        if (d < p.r + 10) {
-          if (k.kind === "hp") p.hp = Math.min(p.maxHp, p.hp + 25);
-          if (k.kind === "shield") p.shield = 6;
-          if (k.kind === "double") p.doubleT = 10;
-          if (k.kind === "xp") this.gainXp(8);
-          if (k.kind === "coin") { this.coins++; this.onEvent("hud"); }
-          this.sfx.pickup();
-          this.explode(k.x, k.y, k.kind === "coin" ? "#fbbf24" : "#34d399", 8, 150);
-          this.pickups.splice(i, 1);
-          continue;
+        let taken = false;
+        for (const pl of alivePlayers()) {
+          const dx = pl.x - k.x, dy = pl.y - k.y, d = Math.hypot(dx, dy) || 1;
+          if (d < arm.magnet) { k.x += (dx / d) * 260 * dt; k.y += (dy / d) * 260 * dt; }
+          if (d < pl.r + 10) {
+            if (k.kind === "hp") pl.hp = Math.min(arm.maxHp, pl.hp + 25);
+            if (k.kind === "shield") pl.shield = 6;
+            if (k.kind === "double") pl.doubleT = 10;
+            if (k.kind === "xp") this.gainXp(8);
+            if (k.kind === "coin") {
+              this.coinMap[pl.id] = (this.coinMap[pl.id] || 0) + 1;
+              if (pl === me) { this.syncMirrors(); this.onEvent("hud"); }
+            }
+            this.sfx.pickup();
+            this.explode(k.x, k.y, k.kind === "coin" ? "#fbbf24" : "#34d399", 8, 150);
+            taken = true;
+            break;
+          }
         }
+        if (taken) { this.pickups.splice(i, 1); continue; }
         if (k.life <= 0) this.pickups.splice(i, 1);
       }
 
@@ -487,6 +698,7 @@
         s.y += s.z * 18 * dt;
         if (s.y > this.H) { s.y = -2; s.x = Math.random() * this.W; }
       }
+      this.syncMirrors();
       this.onEvent("hud");
     }
 
@@ -520,12 +732,14 @@
     }
 
     gainXp(n) {
-      const p = this.p;
-      p.xp += n;
-      if (p.xp >= p.xpNext) {
-        p.xp -= p.xpNext;
-        p.level++;
-        p.xpNext = Math.floor(p.xpNext * 1.35);
+      this.lvl.xp += n;
+      if (this.lvl.xp >= this.lvl.xpNext) {
+        this.lvl.xp -= this.lvl.xpNext;
+        this.lvl.level++;
+        this.lvl.xpNext = Math.floor(this.lvl.xpNext * 1.35);
+        this.syncMirrors();
+        // squad guests don't pick — the host's choice applies to everyone
+        if (this.squad && !this.squad.isHost) return;
         const pool = [...UPGRADES].sort(() => Math.random() - 0.5).slice(0, 3);
         this._pendingUps = pool;
         this.state = "upgrade";
@@ -608,25 +822,39 @@
       for (const b of this.ebullets) { c.beginPath(); c.arc(b.x, b.y, 4, 0, 7); c.fill(); }
 
       if (this.state !== "over") {
-        const p = this.p;
-        drawGlow(p.x, p.y, p.r, "#5eeaff");
-        if (p.shield > 0) {
-          c.strokeStyle = "rgba(94,234,255,.8)"; c.lineWidth = 2;
-          c.beginPath(); c.arc(p.x, p.y, p.r + 8 + Math.sin(this.time * 6) * 2, 0, 7); c.stroke();
-        }
-        c.save(); c.translate(p.x, p.y); c.rotate(p.angle);
-        const grad = c.createLinearGradient(-14, 0, 18, 0);
-        grad.addColorStop(0, "#818cf8"); grad.addColorStop(1, "#5eeaff");
-        c.fillStyle = grad;
-        c.strokeStyle = "#fff"; c.lineWidth = 1.5;
-        c.beginPath();
-        c.moveTo(18, 0); c.lineTo(-10, -11); c.lineTo(-5, 0); c.lineTo(-10, 11);
-        c.closePath(); c.fill(); c.stroke();
-        c.fillStyle = "#0b1228"; c.beginPath(); c.arc(2, 0, 4, 0, 7); c.fill();
-        c.restore();
-        if (p.dashCd > 0) {
-          c.fillStyle = "rgba(255,255,255,.25)";
-          c.fillRect(p.x - 14, p.y + 18, 28 * (1 - p.dashCd / p.dashCdMax), 3);
+        const me = this.localPlayer();
+        for (const p of this.players) {
+          if (!p.alive) continue;
+          const isMe = (p === me) || (!me && p === this.players[0]);
+          drawGlow(p.x, p.y, p.r, p.color);
+          if (p.shield > 0) {
+            c.strokeStyle = "rgba(94,234,255,.8)"; c.lineWidth = 2;
+            c.beginPath(); c.arc(p.x, p.y, p.r + 8 + Math.sin(this.time * 6) * 2, 0, 7); c.stroke();
+          }
+          c.save(); c.translate(p.x, p.y); c.rotate(p.angle);
+          const grad = c.createLinearGradient(-14, 0, 18, 0);
+          grad.addColorStop(0, "#818cf8"); grad.addColorStop(1, p.color);
+          c.fillStyle = grad;
+          c.strokeStyle = isMe ? "#fff" : p.color; c.lineWidth = isMe ? 1.5 : 1;
+          c.beginPath();
+          c.moveTo(18, 0); c.lineTo(-10, -11); c.lineTo(-5, 0); c.lineTo(-10, 11);
+          c.closePath(); c.fill(); c.stroke();
+          c.fillStyle = "#0b1228"; c.beginPath(); c.arc(2, 0, 4, 0, 7); c.fill();
+          c.restore();
+          // name tag + hp bar for squadmates
+          if (this.squad && this.squad.active) {
+            c.fillStyle = isMe ? "#fff" : p.color;
+            c.font = "700 11px system-ui"; c.textAlign = "center";
+            c.fillText((p.name || "?").slice(0, 12), p.x, p.y - p.r - 12);
+            c.fillStyle = "rgba(255,255,255,.18)";
+            c.fillRect(p.x - 16, p.y - p.r - 8, 32, 3);
+            c.fillStyle = p.color;
+            c.fillRect(p.x - 16, p.y - p.r - 8, 32 * Math.max(0, p.hp / this.arm.maxHp), 3);
+          }
+          if (isMe && p.dashCd > 0) {
+            c.fillStyle = "rgba(255,255,255,.25)";
+            c.fillRect(p.x - 14, p.y + 18, 28 * (1 - p.dashCd / this.arm.dashCdMax), 3);
+          }
         }
       }
 

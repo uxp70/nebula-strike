@@ -49,16 +49,30 @@ A workflow is included at `.github/workflows/pages.yml` — Pages deploys automa
 
 Mobile: left thumb = move, right thumb = aim + auto-fire.
 
+Controller: left stick = move, right stick = aim, RT/A = fire, RB/B = dash, Start = pause, Back = mute.
+
 ## Project structure
 
 ```
 index.html          — layout, menus, HUD, modals
 styles.css          — full neon theme, responsive
 js/auth.js          — login system (AuthSystem)
+js/global.js        — worldwide leaderboard sync (GlobalBoard)
+js/net.js           — squad co-op networking (MiniMQTT + SquadNet)
 js/audio.js         — WebAudio synth SFX + music
 js/game.js          — game engine (NebulaGame)
 js/app.js           — UI glue, leaderboard, screens
 ```
+
+## Online squad co-op (no backend)
+
+- **Squad tab** (login required): Create a room (4-letter code) or Join with a friend's code, up to 4 pilots. The creator's browser hosts the run over a public MQTT relay (`js/net.js`, EMQX primary + HiveMQ fallback — no accounts or keys).
+- Host simulates; guests stream inputs (~12Hz) and render snapshots (~10Hz). Shared XP/level, host picks upgrades for the squad, enemies scale with pilot count, everyone keeps their own coins/credits and posts the shared score globally.
+- If the host disconnects, the next pilot automatically resumes the run from the latest snapshot (host migration). If relay unreachable, solo still works fully offline.
+
+## Controller support
+
+Standard gamepads work solo and in squads: left stick move, right stick aim, RT/A fire, RB/B dash, Start pause, Back mute. Keyboard + mouse + touch keep working alongside.
 
 ## Leaderboards: Global + Personal
 

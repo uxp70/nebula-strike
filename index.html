@@ -59,6 +59,7 @@
       <section class="card">
         <div class="tabs">
           <button class="tab active" data-tab="board">🏆 Leaderboard</button>
+          <button class="tab" data-tab="squad">👾 Squad</button>
           <button class="tab" data-tab="how">⌨️ Controls</button>
           <button class="tab" data-tab="settings">⚙️ Settings</button>
         </div>
@@ -88,6 +89,25 @@
             <p class="muted" style="font-size:12px">Your all-time bests on this browser. Guests can fly but nothing is saved.</p>
           </div>
         </div>
+        <div id="tab-squad" hidden>
+          <p class="muted" id="squadStatus" style="font-size:13px;margin:0 0 8px">Login, then create or join a squad room to fight together (up to 4).</p>
+          <div class="field">
+            <label>ROOM CODE (share with friends)</label>
+            <div class="pw-row">
+              <input id="roomCode" maxlength="6" placeholder="e.g. KQ7Z" autocapitalize="characters" spellcheck="false" style="text-transform:uppercase" />
+              <button class="btn btn-sm" id="joinSquadBtn" type="button">Join</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <button class="btn btn-sm btn-primary" id="createSquadBtn">Create room</button>
+            <button class="btn btn-sm btn-ghost" id="leaveSquadBtn" disabled>Leave</button>
+          </div>
+          <div id="memberList" style="margin:10px 0;display:grid;gap:6px"></div>
+          <div class="form-row">
+            <button class="btn btn-sm btn-primary" id="squadLaunchBtn" disabled>🚀 Launch squad run</button>
+          </div>
+          <p class="muted" style="font-size:12px">Host simulates the run; all pilots share XP and upgrades. If the host drops, another pilot takes over automatically.</p>
+        </div>
         <div id="tab-how" hidden>
           <div class="howto">
             <div><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or arrows — move</div>
@@ -96,6 +116,7 @@
             <div>💠 Pick up <b style="color:var(--green)">repair</b>, <b style="color:var(--neon)">shield</b>, <b style="color:var(--gold)">double-fire</b> cores — and grab <b style="color:var(--gold)">◉ coins</b>, they're shop credits.</div>
             <div>☠️ Boss every 5 waves. Splitters break into minis. Snipers keep distance.</div>
             <div>📱 Mobile: left stick moves, right stick aims + autofires. No aim touch = auto-aim nearest. Tap DASH to burst.</div>
+            <div>🎮 Controller: left stick move • right stick aim • <kbd>RT</kbd>/<kbd>A</kbd> fire • <kbd>RB</kbd>/<kbd>B</kbd> dash • <kbd>Start</kbd> pause. Works solo + squad.</div>
           </div>
         </div>
         <div id="tab-settings" hidden>
@@ -246,6 +267,7 @@
 
   <script src="js/auth.js"></script>
   <script src="js/global.js"></script>
+  <script src="js/net.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/game.js"></script>
   <script src="js/app.js"></script>

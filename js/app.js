@@ -77,9 +77,8 @@
     btn.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
-      $("tab-board").hidden = btn.dataset.tab !== "board";
-      $("tab-how").hidden = btn.dataset.tab !== "how";
-      $("tab-settings").hidden = btn.dataset.tab !== "settings";
+      ["board", "squad", "how", "settings"].forEach(t => { $("tab-" + t).hidden = btn.dataset.tab !== t; });
+      if (btn.dataset.tab === "squad") renderSquad();
     });
   });
 
@@ -363,6 +362,223 @@
     }
   }
 
+  // ---------- online squad (co-op) ----------
+  let squad = null;
+  let squadRun = null; // {isHost}
+  let lastSnap = null;
+  function ensureSquad() {
+    if (squad) { squad.name = auth.currentUser().username; return squad; }
+    squad = new SquadNet({
+      name: auth.currentUser().username,
+      onRoster: (members, hostId) => { renderSquad(members, hostId); checkSquad(members, hostId); },
+      onSnap: (snap) => {
+        if (!squadRun || squadRun.isHost) return;
+        lastSnap = snap;
+        if (game.squad && game.applySnap(snap)) { /* rendered next frame */ }
+      },
+      onEvent: (ev) => onSquadNet(ev),
+      onStatus: (s) => {
+        $("squadStatus").textContent = (squad && squad.code) ? `Room ${squad.code} • ${s}` : s;
+      }
+    });
+    return squad;
+  }
+  function renderSquad(members, hostId) {
+    members = members || (squad ? squad.roster() : []);
+    hostId = hostId || (squad ? squad.hostId() : null);
+    const me = auth.currentUser();
+    const box = $("memberList");
+    if (!squad || !squad.code) {
+      box.innerHTML = "";
+      $("leaveSquadBtn").disabled = true;
+      $("squadLaunchBtn").disabled = true;
+      return;
+    }
+    box.innerHTML = members.map(m =>
+      `<div class="member"><b>${escapeHtml(m.name)}</b>
+       ${m.id === hostId ? '<span class="crown">👑 host</span>' : ""}
+       ${me && m.name === me.username && m.id === squad.id ? '<span class="youmark">• you</span>' : ""}</div>`
+    ).join("") || '<div class="muted">Waiting for pilots…</div>';
+    $("leaveSquadBtn").disabled = false;
+    const canLaunch = squad.amHost() && members.length >= 1 && !squadRun;
+    $("squadLaunchBtn").disabled = !canLaunch;
+  }
+  function checkSquad(members, hostId) {
+    if (!squad || !squad.code) return;
+    // host prunes ships of departed pilots mid-run
+    if (squadRun && squadRun.isHost && game.squad && game.squad.isHost && game.state !== "over") {
+      const ids = new Set(members.map(m => m.id));
+      const before = game.players.length;
+      game.players = game.players.filter(p => ids.has(p.id));
+      if (!game.players.length) { endSquadRun("Squad disbanded."); return; }
+      if (game.players.length !== before) toast("A pilot disconnected — their ship is gone.");
+    }
+    // host migration: I'm the new host and have a snapshot → resume the sim
+    if (squadRun && !squadRun.isHost && squad.amHost() && game.state === "remote" && lastSnap) {
+      if (game.takeOver(lastSnap)) {
+        squadRun.isHost = true;
+        squad.sendEvent({ t: "msg", text: auth.currentUser().username + " took over the run" });
+        toast("You are now the host — run resumed.");
+      }
+    }
+    if (squadRun && !squad.amHost()) squadRun.isHost = false;
+    if (squadRun && squad.amHost()) squadRun.isHost = true;
+  }
+  function onSquadNet(ev) {
+    if (!ev || !ev.t) return;
+    if (ev.t === "input" && squadRun && squadRun.isHost && game.squad) {
+      const pl = game.players.find(p => p.id === ev.from);
+      if (pl && ev.data) {
+        pl.input.mx = Number(ev.data.mx) || 0; pl.input.my = Number(ev.data.my) || 0;
+        pl.input.ax = Number(ev.data.ax) || 0; pl.input.ay = Number(ev.data.ay) || 0;
+        pl.input.fire = !!ev.data.f; pl.input.dash = !!ev.data.d;
+      }
+      return;
+    }
+    if (ev.t === "start") {
+      startSquadRun(ev, false);
+      return;
+    }
+    if (ev.t === "over") {
+      endSquadRun(null, ev);
+      return;
+    }
+    if (ev.t === "wave" && squadRun && !squadRun.isHost) {
+      $("runInfo").textContent = `— SQUAD ${squad.code} • wave ${ev.wave} —`;
+      toast("Wave " + ev.wave + (ev.wave % 5 === 0 ? " — BOSS! ☠️" : ""));
+      return;
+    }
+    if (ev.t === "msg") { toast(ev.text || ""); return; }
+  }
+  function startSquadRun(ev, isHost) {
+    const diff = ev.diff || $("difficulty").value;
+    const members = ev.members || [];
+    if (!members.length) { toast("No squad members."); return; }
+    const me = auth.currentUser();
+    // host's fitted loadout benefits the whole squad (single-use, consumed)
+    let bonusHp = me && isHost ? bonusHpFor(me.credits) : 0;
+    let bonusDmg = 1, startShield = 0;
+    if (me && isHost) {
+      bonusHp += loadout.hull * 20;
+      bonusDmg = 1 + loadout.dmg * 0.15;
+      startShield = loadout.shield * 8;
+      loadout.hull = loadout.dmg = loadout.shield = 0;
+      if (me.daily && me.daily.lastClaim) {
+        try {
+          const today = new Date().toISOString().slice(0, 10);
+          if (me.daily.lastClaim === today && (me.daily.streak || 0) >= 3) startShield += 6;
+        } catch {}
+      }
+    }
+    $("menuOverlay").classList.add("hidden");
+    $("gameOverOverlay").classList.add("hidden");
+    $("upgradeOverlay").classList.add("hidden");
+    game.startSquad({ isHost, members, diff, myId: squad.id, bonusHp, bonusDmg, startShield });
+    sfx.startMusic();
+    squadRun = { isHost };
+    lastSnap = null;
+    $("runInfo").textContent = `— SQUAD ${squad.code} • wave 1 • ${isHost ? "👑 host" : "guest"} —`;
+    $("squadLaunchBtn").disabled = true;
+    if (me) refreshUser();
+    toast(isHost ? "Squad run started — you're the host" : "Joined squad run!");
+  }
+  function endSquadRun(localMsg, ev) {
+    sfx.stopMusic();
+    const wasHost = squadRun && squadRun.isHost;
+    squadRun = null;
+    const me = auth.currentUser();
+    const stats = ev || { score: Math.floor(game.score), wave: game.wave, kills: game.kills, coins: game.coinMap };
+    const myCoins = (stats.coins && me && stats.coins[squad ? squad.id : "local"]) || game.coins || 0;
+    if (me) {
+      const r = auth.recordGame(me.username, { score: stats.score, wave: stats.wave, kills: stats.kills, ms: 0 });
+      const coinBonus = Math.min(200, Math.max(0, Math.floor(myCoins)) * 5);
+      const total = coinBonus ? auth.addCredits(me.username, coinBonus) : r.credits;
+      refreshUser();
+      board.submit({ user: me.username, score: stats.score, wave: stats.wave, kills: stats.kills })
+        .then(res => { if (res.ok) refreshGlobal(false); });
+      $("finalStats").textContent =
+        `🤝 Squad score ${stats.score} • Wave ${stats.wave} • Kills ${stats.kills}` +
+        ` • +${r.earned} run ◉${coinBonus ? ` +${coinBonus} coins ◉` : ""} → ${total} • posted 🌍`;
+    } else {
+      $("finalStats").textContent = `🤝 Squad score ${stats.score} • Wave ${stats.wave}`;
+    }
+    game.state = "over";
+    $("upgradeOverlay").classList.add("hidden");
+    $("gameOverOverlay").classList.remove("hidden");
+    // stay in the room for another run
+    game.squad = game.squad || { active: true, isHost: !!wasHost };
+    renderSquad();
+    if (localMsg) toast(localMsg);
+  }
+  function leaveSquadRun() {
+    squadRun = null;
+    lastSnap = null;
+    game.endSquad();
+    $("menuOverlay").classList.remove("hidden");
+    $("gameOverOverlay").classList.add("hidden");
+    $("upgradeOverlay").classList.add("hidden");
+    refreshUser();
+  }
+
+  $("createSquadBtn").addEventListener("click", async () => {
+    const me = auth.currentUser();
+    if (!me) { toast("Login to squad up."); openAuth(); return; }
+    $("createSquadBtn").disabled = true;
+    try {
+      const s = ensureSquad();
+      const code = await s.create();
+      toast("Room " + code + " — share the code!");
+      renderSquad();
+    } catch { toast("Could not reach squad relay. Try again."); }
+    $("createSquadBtn").disabled = false;
+  });
+  $("joinSquadBtn").addEventListener("click", async () => {
+    const me = auth.currentUser();
+    if (!me) { toast("Login to squad up."); openAuth(); return; }
+    const code = $("roomCode").value;
+    if (!code.trim()) { toast("Enter a room code."); return; }
+    $("joinSquadBtn").disabled = true;
+    try {
+      const s = ensureSquad();
+      await s.join(code);
+      toast("Joined room " + s.code);
+      renderSquad();
+    } catch { toast("Could not reach squad relay. Try again."); }
+    $("joinSquadBtn").disabled = false;
+  });
+  $("leaveSquadBtn").addEventListener("click", () => {
+    if (squadRun) leaveSquadRun();
+    if (squad) { squad.leave(); squad = null; }
+    $("squadStatus").textContent = "Login, then create or join a squad room to fight together (up to 4).";
+    renderSquad();
+    toast("Left squad.");
+  });
+  $("squadLaunchBtn").addEventListener("click", () => {
+    if (!squad || !squad.amHost() || squadRun) return;
+    const members = squad.roster().slice(0, 4).map(m => ({ id: m.id, name: m.name }));
+    squad.sendEvent({ t: "start", diff: $("difficulty").value, members });
+    startSquadRun({ diff: $("difficulty").value, members }, true);
+  });
+
+  // squad network pumps: host sends snapshots, guests send inputs
+  setInterval(() => {
+    if (!squad || !squad.code || !squadRun || !game.squad) return;
+    try {
+      if (squadRun.isHost && squad.amHost() && game.state !== "over" && game.state !== "menu") {
+        squad.sendSnap(game.genSnap());
+      } else if (!squadRun.isHost && game.state === "remote") {
+        const inp = game.sampleInput();
+        squad.sendInput({ mx: +inp.mx.toFixed(2), my: +inp.my.toFixed(2), ax: +inp.ax.toFixed(2), ay: +inp.ay.toFixed(2), f: inp.fire ? 1 : 0, d: inp.dash ? 1 : 0 });
+      }
+    } catch {}
+  }, 100);
+
+  // ---------- controller status ----------
+  window.addEventListener("gamepadconnected", (e) => {
+    toast("Controller on: left move • right aim • RT fire • RB dash");
+  });
+  window.addEventListener("gamepaddisconnected", () => toast("Controller disconnected."));
+
   // ---------- settings ----------
   $("soundSel").addEventListener("change", e => { sfx.setEnabled(e.target.value === "on"); });
   $("wipeBtn").addEventListener("click", () => {
@@ -373,6 +589,7 @@
 
   // ---------- game flow ----------
   function launch() {
+    if (squadRun) { toast("Finish or leave the squad run first (Squad tab → Leave)."); return; }
     const diff = $("difficulty").value;
     const me = auth.currentUser();
     const passiveHp = me ? bonusHpFor(me.credits) : 0;
@@ -401,8 +618,19 @@
   $("playBtn").addEventListener("click", launch);
   $("overlayPlay").addEventListener("click", launch);
   $("guestBtn").addEventListener("click", launch);
-  $("againBtn").addEventListener("click", launch);
+  $("againBtn").addEventListener("click", () => {
+    if (squadRun) {
+      if (squad && squad.amHost()) {
+        const members = squad.roster().slice(0, 4).map(m => ({ id: m.id, name: m.name }));
+        squad.sendEvent({ t: "start", diff: $("difficulty").value, members });
+        startSquadRun({ diff: $("difficulty").value, members }, true);
+      } else toast("Only the host can relaunch — wait for them.");
+      return;
+    }
+    launch();
+  });
   $("menuBtn").addEventListener("click", () => {
+    if (squadRun) { leaveSquadRun(); return; }
     $("gameOverOverlay").classList.add("hidden");
     $("menuOverlay").classList.remove("hidden");
     game.state = "menu";
@@ -449,8 +677,9 @@
       $("xpFill").style.width = (game.p.xp / game.p.xpNext * 100) + "%";
     }
     if (ev === "wave") {
-      $("runInfo").textContent = `— wave ${data.wave} • ${game.difficulty} —`;
+      $("runInfo").textContent = squadRun ? `— SQUAD ${squad.code} • wave ${data.wave} —` : `— wave ${data.wave} • ${game.difficulty} —`;
       toast("Wave " + data.wave + (data.wave % 5 === 0 ? " — BOSS! ☠️" : ""));
+      if (squadRun && squadRun.isHost && squad) squad.sendEvent({ t: "wave", wave: data.wave });
     }
     if (ev === "upgrade") {
       const grid = $("upgradeGrid");
@@ -477,6 +706,13 @@
     if (ev === "over") {
       sfx.stopMusic();
       pauseBtn.textContent = "Pause";
+      if (squadRun && squad) {
+        // squad run ended on the host sim → broadcast + settle locally
+        const evOut = { t: "over", score: Math.floor(game.score), wave: game.wave, kills: game.kills, coins: { ...game.coinMap } };
+        if (squadRun.isHost) squad.sendEvent(evOut);
+        endSquadRun(null, evOut);
+        return;
+      }
       const me = auth.currentUser();
       if (me) {
         const r = auth.recordGame(me.username, data);
