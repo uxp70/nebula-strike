@@ -23,6 +23,20 @@
   function rand(a, b) { return a + Math.random() * (b - a); }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function dead(v, dz) { return Math.abs(v) < dz ? 0 : v; }
+
+  // Overall wave scaling: every wave hits harder, moves faster, spawns
+  // quicker and shoots more often. Caps keep late waves fierce but fair.
+  function waveMul(wave) {
+    const w = Math.max(1, Math.floor(wave || 1)) - 1;
+    return {
+      hp: 1 + w * 0.22,
+      dmg: Math.min(3, 1 + w * 0.07),
+      spd: Math.min(1.35, 1 + w * 0.02),
+      gap: Math.max(0.4, 1 - w * 0.035),
+      fire: Math.max(0.55, 1 - w * 0.03),
+      shot: Math.min(1.5, 1 + w * 0.02)
+    };
+  }
   function isCoarse() {
     return (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || ("ontouchstart" in window);
   }
@@ -441,13 +455,16 @@
         else type = "chaser";
       }
       const base = { x, y, t: 0, fireT: rand(1, 2.5) };
-      const hpMul = cfg.enemyHp * (1 + (this.wave - 1) * 0.22) * (1 + 0.25 * (this.players.length - 1));
-      if (type === "chaser") Object.assign(base, { type, r: 14, hp: 26 * hpMul, speed: 105 * cfg.enemySpeed, dmg: 12 * cfg.enemyDmg, score: 50, color: "#f472b6" });
-      if (type === "speeder") Object.assign(base, { type, r: 10, hp: 14 * hpMul, speed: 185 * cfg.enemySpeed, dmg: 8 * cfg.enemyDmg, score: 70, color: "#5eeaff" });
-      if (type === "splitter") Object.assign(base, { type, r: 18, hp: 44 * hpMul, speed: 80 * cfg.enemySpeed, dmg: 14 * cfg.enemyDmg, score: 90, color: "#a78bfa" });
-      if (type === "sniper") Object.assign(base, { type, r: 13, hp: 30 * hpMul, speed: 90 * cfg.enemySpeed, dmg: 10 * cfg.enemyDmg, score: 120, color: "#fbbf24" });
-      if (type === "mini") Object.assign(base, { type, r: 8, hp: 8 * hpMul, speed: 200 * cfg.enemySpeed, dmg: 6 * cfg.enemyDmg, score: 25, color: "#c4b5fd" });
-      if (type === "boss") Object.assign(base, { type, r: 34, hp: 420 * hpMul, speed: 62 * cfg.enemySpeed, dmg: 22 * cfg.enemyDmg, score: 800, color: "#fb7185" });
+      const wm = waveMul(this.wave);
+      const hpMul = cfg.enemyHp * wm.hp * (1 + 0.25 * (this.players.length - 1));
+      const dmgMul = cfg.enemyDmg * wm.dmg;
+      const spdMul = cfg.enemySpeed * wm.spd;
+      if (type === "chaser") Object.assign(base, { type, r: 14, hp: 26 * hpMul, speed: 105 * spdMul, dmg: 12 * dmgMul, score: 50, color: "#f472b6" });
+      if (type === "speeder") Object.assign(base, { type, r: 10, hp: 14 * hpMul, speed: 185 * spdMul, dmg: 8 * dmgMul, score: 70, color: "#5eeaff" });
+      if (type === "splitter") Object.assign(base, { type, r: 18, hp: 44 * hpMul, speed: 80 * spdMul, dmg: 14 * dmgMul, score: 90, color: "#a78bfa" });
+      if (type === "sniper") Object.assign(base, { type, r: 13, hp: 30 * hpMul, speed: 90 * spdMul, dmg: 10 * dmgMul, score: 120, color: "#fbbf24" });
+      if (type === "mini") Object.assign(base, { type, r: 8, hp: 8 * hpMul, speed: 200 * spdMul, dmg: 6 * dmgMul, score: 25, color: "#c4b5fd" });
+      if (type === "boss") Object.assign(base, { type, r: 34, hp: 420 * hpMul, speed: 62 * spdMul, dmg: 22 * dmgMul, score: 800, color: "#fb7185" });
       this.enemies.push(base);
       this.spawned++;
     }
@@ -475,6 +492,7 @@
       const arm = this.arm;
       this.time += dt;
       const nP = this.players.length;
+      const wm = waveMul(this.wave); // full difficulty scaling for this wave
       const me = this.localPlayer();
       const lin = this.sampleInput();
       if (me) { me.input.mx = lin.mx; me.input.my = lin.my; }
@@ -541,7 +559,7 @@
       this.waveTotal = 6 + this.wave * 2 + 3 * (nP - 1);
       this.spawnT -= dt;
       if (this.spawned < this.waveTotal && this.spawnT <= 0) {
-        this.spawnT = 0.55 * cfg.spawnGap;
+        this.spawnT = 0.55 * cfg.spawnGap * wm.gap;
         this.spawnEnemy();
       } else if (this.spawned >= this.waveTotal && this.enemies.length === 0) {
         this.wave++;
@@ -588,19 +606,19 @@
           else if (d < 220) { e.x -= (dx / d) * e.speed * dt; e.y -= (dy / d) * e.speed * dt; }
           e.fireT -= dt;
           if (e.fireT <= 0 && d < 560) {
-            e.fireT = 1.6;
+            e.fireT = 1.6 * wm.fire;
             const a = Math.atan2(dy, dx);
-            this.ebullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, life: 3, dmg: e.dmg });
+            this.ebullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 260 * wm.shot, vy: Math.sin(a) * 260 * wm.shot, life: 3, dmg: e.dmg });
             this.sfx.blip(180, 0.12, "sawtooth", 0.06);
           }
         } else if (e.type === "boss") {
           e.x += (dx / d) * e.speed * dt; e.y += (dy / d) * e.speed * dt;
           e.fireT -= dt;
           if (e.fireT <= 0) {
-            e.fireT = 1.1;
+            e.fireT = 1.1 * wm.fire;
             for (let k = 0; k < 8; k++) {
               const a = (k / 8) * Math.PI * 2 + e.t;
-              this.ebullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 190, vy: Math.sin(a) * 190, life: 3.2, dmg: e.dmg * 0.6 });
+              this.ebullets.push({ x: e.x, y: e.y, vx: Math.cos(a) * 190 * wm.shot, vy: Math.sin(a) * 190 * wm.shot, life: 3.2, dmg: e.dmg * 0.6 });
             }
             this.sfx.blip(120, 0.25, "sawtooth", 0.1);
           }
