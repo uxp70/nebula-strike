@@ -444,6 +444,7 @@
       $("hudWave").textContent = game.wave;
       $("hudKills").textContent = game.kills;
       $("hudCoins").textContent = game.coins || 0;
+      $("hudLevel").textContent = game.p.level || 1;
       $("hpFill").style.width = (game.p.hp / game.p.maxHp * 100) + "%";
       $("xpFill").style.width = (game.p.xp / game.p.xpNext * 100) + "%";
     }
@@ -499,7 +500,8 @@
       $("gameOverOverlay").classList.remove("hidden");
     }
     if (ev === "start") {
-      $("hudScore").textContent = "0"; $("hudWave").textContent = "1"; $("hudKills").textContent = "0"; $("hudCoins").textContent = "0";
+      $("hudScore").textContent = "0"; $("hudWave").textContent = "1"; $("hudKills").textContent = "0"; $("hudCoins").textContent = "0"; $("hudLevel").textContent = "1";
+      $("hpFill").style.width = "100%"; $("xpFill").style.width = "0%";
     }
   };
 
