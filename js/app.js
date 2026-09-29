@@ -527,6 +527,7 @@
     try {
       const s = ensureSquad();
       const code = await s.create();
+      $("roomCode").value = code;
       toast("Room " + code + " — share the code!");
       renderSquad();
     } catch (e) { toast("Squad relay failed: " + ((e && e.message) || "try again")); }
