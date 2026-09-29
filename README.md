@@ -60,6 +60,12 @@ js/game.js          — game engine (NebulaGame)
 js/app.js           — UI glue, leaderboard, screens
 ```
 
+## Leaderboards: Global + Personal
+
+- **🌍 Global** — shared worldwide. Finished runs (logged in, score > 0) are published to a public ntfy.sh topic (`nebula-strike-v1-top-uxp70`, see `TOPIC` in `js/global.js`) and the tab aggregates best-per-pilot across all players. ntfy.sh keeps ~12h of message history, so Global = recent worldwide top; entries are strictly validated on read and junk is dropped. Score posts queue offline and flush on reconnect.
+- **👤 Personal** — your all-time bests + last 10 runs, stored in this browser (`localStorage`), plus your live global rank.
+- To reset/move the global board, change `TOPIC` in `js/global.js` (first publish creates the topic). The topic is public by design — don't put secrets in it.
+
 ## Login system details
 
 - `localStorage` keys: `nebula_users_v1`, `nebula_session_v1`, `nebula_scores_v1`

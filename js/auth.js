@@ -7,6 +7,7 @@
   const USERS_KEY = "nebula_users_v1";
   const SESSION_KEY = "nebula_session_v1";
   const SCORES_KEY = "nebula_scores_v1";
+  const HISTORY_KEY = "nebula_history_v1";
 
   const DAILY_REWARDS = [100, 150, 200, 300, 500, 750, 1000];
   const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
@@ -142,6 +143,12 @@
       const scores = loadJSON(SCORES_KEY, []);
       const arr = Array.isArray(scores) ? scores : (scores.entries || []);
       saveJSON(SCORES_KEY, arr.filter(s => s && String(s.user || "").toLowerCase() !== key.toLowerCase()));
+      try {
+        const h = loadJSON(HISTORY_KEY, {});
+        delete h[key];
+        Object.keys(h).forEach(k => { if (k.toLowerCase() === key.toLowerCase()) delete h[k]; });
+        saveJSON(HISTORY_KEY, h);
+      } catch {}
       if (this.session && this.session.username.toLowerCase() === key.toLowerCase()) this.session = null;
       this._persist();
     }
@@ -174,6 +181,18 @@
       u.lastSeen = Date.now();
       this._persist();
       this._saveBest(key, { score, wave, kills });
+      // personal run history (for the Personal tab)
+      try {
+        const h = loadJSON(HISTORY_KEY, {});
+        const arr = Array.isArray(h[key]) ? h[key] : [];
+        arr.unshift({ score, wave, kills, date: Date.now(), best: isBest });
+        h[key] = arr.slice(0, 20);
+        // migrate legacy case-variant keys into the canonical one
+        Object.keys(h).forEach(k => {
+          if (k !== key && k.toLowerCase() === key.toLowerCase()) { delete h[k]; }
+        });
+        saveJSON(HISTORY_KEY, h);
+      } catch {}
       return { saved: true, isBest, earned, credits: u.credits };
     }
 
@@ -225,6 +244,13 @@
       const i = rows.findIndex(r => r.user.toLowerCase() === String(username || "").toLowerCase());
       return i === -1 ? null : i + 1;
     }
+    history(username, limit = 10) {
+      const key = this._findKey(username);
+      if (!key) return [];
+      const h = loadJSON(HISTORY_KEY, {});
+      const arr = Array.isArray(h[key]) ? h[key] : [];
+      return arr.filter(r => r && Number.isFinite(Number(r.score))).slice(0, Math.max(1, Math.min(20, limit || 10)));
+    }
 
     // ---------- daily streak rewards ----------
     dailyStatus(username) {
@@ -267,6 +293,7 @@
       localStorage.removeItem(USERS_KEY);
       localStorage.removeItem(SESSION_KEY);
       localStorage.removeItem(SCORES_KEY);
+      localStorage.removeItem(HISTORY_KEY);
       this.users = {}; this.session = null;
     }
   }

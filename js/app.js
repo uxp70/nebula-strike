@@ -13,7 +13,64 @@
   const auth = new AuthSystem();
   const sfx = new SoundFX();
   const game = new NebulaGame($("game"), sfx);
+  const board = new GlobalBoard();
   let dailyAutoShown = false;
+  let globalRows = [];
+  let globalLive = false;
+  let globalAt = 0;
+
+  // ---------- board sub-tabs (Global / Personal) ----------
+  document.querySelectorAll(".subtab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".subtab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const isGlobal = btn.dataset.board === "global";
+      $("pane-global").hidden = !isGlobal;
+      $("pane-personal").hidden = isGlobal;
+      if (isGlobal) refreshGlobal(false);
+    });
+  });
+
+  function agoText(at) {
+    if (!at) return "never";
+    const s = Math.max(0, Math.floor((Date.now() - at) / 1000));
+    if (s < 10) return "just now";
+    if (s < 60) return s + "s ago";
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + "m ago";
+    return Math.floor(m / 60) + "h ago";
+  }
+  function setBoardStatus() {
+    const el = $("boardStatus");
+    if (globalLive) { el.textContent = "🌍 live • " + agoText(globalAt); el.classList.add("live"); }
+    else if (globalAt) { el.textContent = "offline • cached " + agoText(globalAt); el.classList.remove("live"); }
+    else { el.textContent = "connecting…"; el.classList.remove("live"); }
+  }
+  async function refreshGlobal(force) {
+    if (!force && refreshGlobal._busy) return;
+    refreshGlobal._busy = true;
+    setBoardStatus();
+    try {
+      const r = await board.refresh();
+      globalRows = r.rows; globalLive = r.live; globalAt = r.at;
+      renderGlobal();
+      const me = auth.currentUser();
+      if (me) {
+        const i = globalRows.findIndex(x => x.user.toLowerCase() === me.username.toLowerCase());
+        $("statTop").textContent = globalRows.length ? globalRows[0].user + " (" + globalRows[0].score + ")" : "—";
+        if (i >= 0) $("myRank").textContent = `🌍 Global rank #${i + 1} • best ${me.stats.best} • ${me.credits || 0} credits`;
+      } else if (globalRows.length) {
+        $("statTop").textContent = globalRows[0].user + " (" + globalRows[0].score + ")";
+      }
+    } finally {
+      refreshGlobal._busy = false;
+      setBoardStatus();
+    }
+  }
+  setInterval(() => { if (!$("tab-board").hidden) refreshGlobal(false); }, 60000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { board.flushQueue(); refreshGlobal(false); }
+  });
 
   // ---------- tabs ----------
   document.querySelectorAll(".tab").forEach(btn => {
@@ -205,19 +262,43 @@
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
   function renderBoard() {
-    let rows = [];
-    try { rows = auth.leaderboard(10); } catch { rows = []; }
+    // Personal pane (all-time, this browser) + top-pilot stat.
+    // Global pane is rendered by renderGlobal() from network/cache.
     const me = auth.currentUser();
-    $("statTop").textContent = rows.length ? rows[0].user + " (" + rows[0].score + ")" : "—";
     if (me) {
-      const r = auth.rankOf(me.username);
-      $("myRank").textContent = r ? `Your rank: #${r} • best ${me.stats.best} • ${me.credits || 0} credits` : "No ranked score yet — fly a run while logged in.";
+      const runs = auth.history(me.username, 10);
+      const body = $("personalBody");
+      if (!runs.length) {
+        body.innerHTML = '<tr><td colspan="5" class="muted">No runs yet — launch a flight.</td></tr>';
+      } else {
+        body.innerHTML = runs.map((r, i) =>
+          `<tr${r.best ? ' class="me"' : ""} title="${r.date ? escapeHtml(fmtDate(r.date)) : ""}"><td>${i + 1}</td><td><b>${r.score}</b>${r.best ? " 🏆" : ""}</td><td>${r.wave}</td><td>${r.kills}</td><td>${r.date ? escapeHtml(fmtDate(r.date)) : "—"}</td></tr>`
+        ).join("");
+      }
+      if (globalRows.length) {
+        const gi = globalRows.findIndex(x => x.user.toLowerCase() === me.username.toLowerCase());
+        $("myRank").textContent = gi >= 0
+          ? `🌍 Global rank #${gi + 1} • best ${me.stats.best} • ${me.credits || 0} credits`
+          : `Not on the global board yet — finish a run to post your score. Best ${me.stats.best} • ${me.credits || 0} credits`;
+      } else {
+        $("myRank").textContent = `Best ${me.stats.best} • ${me.credits || 0} credits • global board loading…`;
+      }
     } else {
-      $("myRank").textContent = "Login to rank. Guest runs don't appear here.";
+      $("myRank").textContent = "Login to rank. Guest runs don't appear anywhere.";
+      $("personalBody").innerHTML = '<tr><td colspan="5" class="muted">Login to track your runs.</td></tr>';
     }
+  }
+
+  function renderGlobal() {
+    const me = auth.currentUser();
     const body = $("boardBody");
-    if (!rows.length) { body.innerHTML = '<tr><td colspan="5" class="muted">No flights yet. Be the first.</td></tr>'; return; }
-    body.innerHTML = rows.map((r, i) =>
+    if (!globalRows.length) {
+      body.innerHTML = globalLive
+        ? '<tr><td colspan="5" class="muted">No global scores yet. Be the first today.</td></tr>'
+        : '<tr><td colspan="5" class="muted">Could not reach the global board. Check connection.</td></tr>';
+      return;
+    }
+    body.innerHTML = globalRows.slice(0, 10).map((r, i) =>
       `<tr class="${me && r.user.toLowerCase() === me.username.toLowerCase() ? "me" : ""}" title="${r.date ? escapeHtml(fmtDate(r.date)) : ""}"><td>${i + 1}</td><td>${escapeHtml(r.user)}</td><td><b>${r.score}</b></td><td>${r.wave}</td><td>${r.kills}</td></tr>`
     ).join("");
   }
@@ -379,10 +460,13 @@
         const r = auth.recordGame(me.username, data);
         refreshUser();
         checkDaily(false);
+        // post to the worldwide board (fire-and-forget; queued offline)
+        board.submit({ user: me.username, score: data.score, wave: data.wave, kills: data.kills })
+          .then(res => { if (res.ok) refreshGlobal(false); });
         $("finalStats").textContent =
           `Score ${data.score} • Wave ${data.wave} • Kills ${data.kills}` +
           (r.isBest ? " • NEW BEST! 🏆" : "") +
-          ` • +${r.earned} credits ◉ → ${r.credits}`;
+          ` • +${r.earned} credits ◉ → ${r.credits} • posted 🌍`;
       } else {
         $("finalStats").textContent = `Score ${data.score} • Wave ${data.wave} • Kills ${data.kills} • guest run (login to rank + earn credits)`;
       }
@@ -398,4 +482,6 @@
   refreshUser();
   game.render();
   checkDaily(true);
+  board.flushQueue();
+  refreshGlobal(true);
 })();

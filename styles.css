@@ -320,3 +320,13 @@ table.board { min-width: 420px; }
 .shop-item:hover:not(:disabled) { border-color: var(--gold); background: rgba(251,191,36,.12); }
 .shop-item:disabled { opacity: .45; cursor: not-allowed; }
 @media (max-width: 560px) { .shop-grid { grid-template-columns: 1fr; } }
+
+/* ---------- Board subtabs (Global / Personal) ---------- */
+.subtabs { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.subtab {
+  padding: 7px 14px; border-radius: 999px; border: 1px solid var(--border);
+  background: transparent; color: var(--muted); font-weight: 800; cursor: pointer; font-size: 13px;
+}
+.subtab.active { color: #06121f; background: var(--gold); border-color: transparent; }
+.board-status { margin-left: auto; font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.board-status.live { color: var(--green); }
