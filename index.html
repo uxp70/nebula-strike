@@ -2,9 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#05070f" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Nebula Strike — GitHub Online Game</title>
-  <meta name="description" content="Nebula Strike: a neon arena shooter with login, leaderboard, and wave combat. Deployable to GitHub Pages." />
+  <meta name="description" content="Nebula Strike: a neon arena shooter with login, leaderboard, daily streak rewards, and wave combat. Deployable to GitHub Pages." />
   <link rel="stylesheet" href="styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
 </head>
@@ -15,6 +19,8 @@
       <div>NEBULA STRIKE<br /><small>ARENA SHOOTER</small></div>
     </div>
     <div class="spacer"></div>
+    <div class="credits-pill" id="creditsPill" hidden title="Credits boost your starting hull">◉ <b id="creditsVal">0</b></div>
+    <button class="btn btn-sm" id="dailyBtn" hidden>🎁 Daily</button>
     <div class="user-chip" id="userChip" hidden>
       <div class="avatar" id="avatar">G</div>
       <div>
@@ -33,8 +39,8 @@
         <h1 class="title">Survive the <span>Nebula.</span> Top the board.</h1>
         <p class="subtitle">
           A fast, juicy top-down arena shooter. Log in to save your pilot profile,
-          fight escalating waves, grab power-ups, pick level-up upgrades, and chase the leaderboard.
-          Push this repo to GitHub and it's instantly playable online.
+          fight escalating waves, grab power-ups, pick level-up upgrades, claim daily streak rewards,
+          and chase the leaderboard.
         </p>
         <div class="cta-row">
           <button class="btn btn-primary" id="playBtn">▶ &nbsp;Deploy Ship</button>
@@ -47,6 +53,7 @@
           <div class="stat"><b id="statKills">0</b><span>Total kills</span></div>
           <div class="stat"><b id="statTop">—</b><span>Global top pilot</span></div>
         </div>
+        <p class="muted" id="perkLine" style="font-size:12px;margin:10px 0 0"></p>
       </section>
 
       <section class="card">
@@ -56,11 +63,14 @@
           <button class="tab" data-tab="settings">⚙️ Settings</button>
         </div>
         <div id="tab-board">
-          <table class="board">
-            <thead><tr><th>#</th><th>PILOT</th><th>SCORE</th><th>WAVE</th><th>KILLS</th></tr></thead>
-            <tbody id="boardBody"><tr><td colspan="5" class="muted">No flights yet. Be the first.</td></tr></tbody>
-          </table>
-          <p class="muted" style="font-size:12px">Scores save to your pilot account in this browser. Logged-out guest runs don't rank.</p>
+          <p class="muted" id="myRank" style="font-size:13px;margin:0 0 8px"></p>
+          <div class="table-scroll">
+            <table class="board">
+              <thead><tr><th>#</th><th>PILOT</th><th>SCORE</th><th>WAVE</th><th>KILLS</th></tr></thead>
+              <tbody id="boardBody"><tr><td colspan="5" class="muted">No flights yet. Be the first.</td></tr></tbody>
+            </table>
+          </div>
+          <p class="muted" style="font-size:12px">One entry per pilot (personal best). Guest runs don't rank. Scores live in this browser.</p>
         </div>
         <div id="tab-how" hidden>
           <div class="howto">
@@ -69,7 +79,7 @@
             <div><kbd>Shift</kbd> — dash (cooldown) &nbsp;•&nbsp; <kbd>P</kbd> — pause &nbsp;•&nbsp; <kbd>M</kbd> — mute</div>
             <div>💠 Pick up <b style="color:var(--green)">repair</b>, <b style="color:var(--neon)">shield</b>, <b style="color:var(--gold)">double-fire</b> cores.</div>
             <div>☠️ Boss every 5 waves. Splitters break into minis. Snipers keep distance.</div>
-            <div>📱 Mobile: left thumb moves, right thumb aims + autofires.</div>
+            <div>📱 Mobile: left stick moves, right stick aims + autofires. No aim touch = auto-aim nearest. Tap DASH to burst.</div>
           </div>
         </div>
         <div id="tab-settings" hidden>
@@ -88,26 +98,38 @@
               <option value="off">Off</option>
             </select>
           </div>
-          <button class="btn btn-sm btn-danger" id="wipeBtn">Reset all local data</button>
+          <div id="accountBox" hidden>
+            <div class="field">
+              <label>CHANGE PASSWORD</label>
+              <input id="newPass" type="password" placeholder="new password (min 6)" autocomplete="new-password" />
+            </div>
+            <div class="form-row">
+              <button class="btn btn-sm" id="changePwBtn">Update password</button>
+              <button class="btn btn-sm btn-danger" id="deleteAcctBtn">Delete account</button>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <button class="btn btn-sm btn-danger" id="wipeBtn">Reset all local data</button>
+          </div>
         </div>
       </section>
     </div>
 
     <section class="card game-shell">
-      <h3 style="display:flex;align-items:center;gap:10px">🛸 Combat Zone
+      <h3 class="zone-head">🛸 Combat Zone
         <span class="muted" id="runInfo" style="font-weight:400;font-size:13px">— press Deploy Ship —</span>
         <span style="flex:1"></span>
         <button class="btn btn-sm" id="pauseBtn">Pause</button>
         <button class="btn btn-sm btn-ghost" id="restartBtn">Restart</button>
       </h3>
-      <div class="canvas-wrap">
+      <div class="canvas-wrap" id="canvasWrap">
         <canvas id="game" width="1120" height="560"></canvas>
         <div class="hud">
           <span class="pill">SCORE <b id="hudScore">0</b></span>
           <span class="pill">WAVE <b id="hudWave">1</b></span>
           <span class="pill">KILLS <b id="hudKills">0</b></span>
-          <span class="pill" style="display:flex;gap:8px;align-items:center">HP <span class="bar hp"><i id="hpFill" style="width:100%"></i></span></span>
-          <span class="pill" style="display:flex;gap:8px;align-items:center">XP <span class="bar"><i id="xpFill" style="width:0%"></i></span></span>
+          <span class="pill pill-bar">HP <span class="bar hp"><i id="hpFill" style="width:100%"></i></span></span>
+          <span class="pill pill-bar">XP <span class="bar"><i id="xpFill" style="width:0%"></i></span></span>
         </div>
 
         <div class="overlay" id="menuOverlay">
@@ -142,11 +164,12 @@
           </div>
         </div>
 
-        <div class="stick left" id="stickL"></div>
-        <div class="stick right" id="stickR"></div>
+        <div class="stick left" id="stickL"><div class="knob" id="stickLKnob"></div></div>
+        <div class="stick right" id="stickR"><div class="knob" id="stickRKnob"></div></div>
+        <button class="dash-btn" id="dashBtn">DASH</button>
       </div>
       <div class="footer">
-        <span>Made for GitHub Pages • static, no tracking • v1.0</span>
+        <span>Made for GitHub Pages • static, no tracking • v1.1</span>
         <span>Tip: press <kbd style="font-family:var(--mono)">M</kbd> to mute • <kbd style="font-family:var(--mono)">P</kbd> to pause</span>
       </div>
     </section>
@@ -155,14 +178,18 @@
   <div class="modal-back hidden" id="authModal">
     <div class="modal">
       <h3 id="authTitle">Welcome, pilot</h3>
-      <p class="muted" style="margin:4px 0 0;font-size:13px">Accounts live in this browser (localStorage), hashed + salted. Push to GitHub Pages and anyone can register.</p>
+      <p class="muted" style="margin:4px 0 0;font-size:13px">Accounts live in this browser (localStorage), hashed + salted. Names are case-insensitive.</p>
       <div class="field">
         <label>CALLSIGN (USERNAME)</label>
-        <input id="authUser" maxlength="16" placeholder="e.g. nova_pilot" autocomplete="username" />
+        <input id="authUser" maxlength="16" placeholder="e.g. nova_pilot" autocomplete="username" autocapitalize="off" spellcheck="false" />
       </div>
       <div class="field">
-        <label>PASSWORD</label>
-        <input id="authPass" type="password" placeholder="min. 4 characters" autocomplete="current-password" />
+        <label>PASSWORD (MIN 6)</label>
+        <div class="pw-row">
+          <input id="authPass" type="password" placeholder="min. 6 characters" autocomplete="current-password" />
+          <button class="btn btn-sm" id="pwToggle" type="button">Show</button>
+        </div>
+        <div class="strength"><i id="pwStrength" style="width:0%"></i></div>
       </div>
       <div class="form-err" id="authErr"></div>
       <div class="form-row">
@@ -170,6 +197,19 @@
         <button class="btn" id="doRegister">Register</button>
       </div>
       <p class="muted" style="font-size:13px;margin:12px 0 0">No account? Hit <b>Register</b> — it creates + logs you in. <button class="linklike" id="closeAuth">Close</button></p>
+    </div>
+  </div>
+
+  <div class="modal-back hidden" id="dailyModal">
+    <div class="modal">
+      <h3>🎁 Daily rewards</h3>
+      <p class="muted" style="margin:4px 0 12px;font-size:13px" id="dailySub">Come back every day to grow your streak.</p>
+      <div class="streak-grid" id="streakGrid"></div>
+      <div class="form-err" id="dailyErr"></div>
+      <div class="form-row">
+        <button class="btn btn-primary" id="claimDailyBtn">Claim</button>
+        <button class="btn" id="closeDailyBtn">Later</button>
+      </div>
     </div>
   </div>
 
