@@ -144,11 +144,14 @@
             showStick(stickL(), t.clientX, t.clientY);
             const k = knobL(); if (k) k.style.transform = "translate(0px,0px)";
           } else if (this.touch.aimId === null) {
+            // right stick: RELATIVE twin-stick aiming. The aim direction is the
+            // vector from touchdown — push to aim, hold near-center to auto-aim.
             this.touch.aimId = t.identifier;
-            this.touch.aimBase = { x: p.x, y: p.y };
+            this.touch.aimBase = { cx: t.clientX, cy: t.clientY };
+            this.touch.aimMag = 0;
             this.touch.aimActive = true;
-            this.mouse.x = p.x; this.mouse.y = p.y;
             showStick(stickR(), t.clientX, t.clientY);
+            const rk = knobR(); if (rk) rk.style.transform = "translate(0px,0px)";
           }
         }
       }, { passive: false });
@@ -177,9 +180,16 @@
             moveKnob(knobL(), this.touch.mx * 34, this.touch.my * 34);
           }
           if (t.identifier === this.touch.aimId && this.touch.aimBase) {
-            this.mouse.x = p.x; this.mouse.y = p.y;
-            const dx = p.x - this.touch.aimBase.x, dy = p.y - this.touch.aimBase.y;
-            moveKnob(knobR(), dx, dy);
+            const dxPx = t.clientX - this.touch.aimBase.cx;
+            const dyPx = t.clientY - this.touch.aimBase.cy;
+            moveKnob(knobR(), dxPx, dyPx);
+            const mag = Math.hypot(dxPx, dyPx);
+            this.touch.aimMag = mag;
+            if (mag > 14) {
+              const me = this.localPlayer() || { x: this.W / 2, y: this.H / 2 };
+              this.mouse.x = me.x + (dxPx / mag) * 2000;
+              this.mouse.y = me.y + (dyPx / mag) * 2000;
+            }
           }
         }
       }, { passive: false });
@@ -192,7 +202,7 @@
             hideStick(stickL());
           }
           if (t.identifier === this.touch.aimId) {
-            this.touch.aimId = null; this.touch.aimBase = null;
+            this.touch.aimId = null; this.touch.aimBase = null; this.touch.aimMag = 0;
             this.touch.aimActive = false;
             const k = knobR(); if (k) k.style.transform = "translate(0px,0px)";
             hideStick(stickR());
@@ -259,6 +269,7 @@
       if (this.touch.moveId !== null) { mx = this.touch.mx; my = this.touch.my; }
       let ax = 0, ay = 0, aimPad = false;
       let fire = !!(this.mouse.down || this.keys[" "] || this.touch.aimActive);
+      let hardFire = !!(this.mouse.down || this.keys[" "]); // aimed fire (mouse/keys/pad), not idle-stick
       let dash = !!(this.keys["shift"] || this.requestDash);
       this.requestDash = false;
       this.keys["shift"] = false;
@@ -275,7 +286,7 @@
           if (Math.hypot(rx, ry) > 0.3) { ax = rx; ay = ry; aimPad = true; }
           const b = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
           const bv = (i) => (gp.buttons[i] && gp.buttons[i].value) || 0;
-          if (bv(7) > 0.25 || b(0)) fire = true;
+          if (bv(7) > 0.25 || b(0)) { fire = true; hardFire = true; }
           const dashNow = b(5) || b(1) || b(4);
           if (dashNow && !this._padDashPrev) dash = true;
           this._padDashPrev = dashNow;
@@ -285,7 +296,7 @@
           this._padMutePrev = b(8);
         } catch {}
       }
-      return { mx, my, ax, ay, aimPad, fire, dash };
+      return { mx, my, ax, ay, aimPad, fire, hardFire, dash };
     }
 
     reset() {
@@ -301,7 +312,7 @@
       this.score = 0; this.kills = 0; this.wave = 1; this.coins = 0;
       this.spawnT = 0; this.spawned = 0; this.waveTotal = 8;
       this.time = 0; this.shake = 0; this.startMs = Date.now();
-      this.touch.mx = 0; this.touch.my = 0; this.touch.aimActive = false;
+      this.touch.mx = 0; this.touch.my = 0; this.touch.aimActive = false; this.touch.aimMag = 0;
       this.requestDash = false;
       this.syncMirrors();
     }
@@ -523,12 +534,14 @@
         pl.shield = Math.max(0, pl.shield - dt);
         pl.doubleT = Math.max(0, pl.doubleT - dt);
 
-        // aim
+        // aim: pad right-stick wins; right touch-stick aims relative to
+        // touchdown; otherwise auto-aim nearest (mobile/pad) or mouse
         if (isMe) {
           if (lin.aimPad) {
             pl.angle = Math.atan2(lin.ay, lin.ax);
           } else {
-            if (!(this.touch.aimId !== null) && (this.isMobile || this.padActive) && !this.mouse.down && !lin.fire) {
+            const aimHeld = this.touch.aimId !== null && (this.touch.aimMag || 0) > 14;
+            if (!aimHeld && (this.isMobile || this.padActive) && !lin.hardFire) {
               let best = null, bd = Infinity;
               for (const e of this.enemies) {
                 const d = (e.x - pl.x) ** 2 + (e.y - pl.y) ** 2;
